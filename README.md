@@ -47,7 +47,7 @@ job_description.txt  +  master_profile.xlsx  →  CV DOCX personnalisé  →  Go
 | 🤖 **Gemini intégré** | Optimisation des bullets en 1 appel (rotation 3 modèles, 60 CV/jour) |
 | 📄 **Template DOCX** | Mise en page Word personnalisable via placeholders |
 | 📊 **Tracker Google Sheets** | Suivi automatique de chaque candidature |
-| 🔒 **Données locales (mode actuel)** | En local : tout tourne sur ta machine, aucune donnée envoyée sauf les appels Gemini et Google Sheets |
+| 🔒 **Zéro donnée en ligne** | Tout tourne en local, tes données restent chez toi |
 
 ---
 
@@ -392,120 +392,6 @@ cv-tailor/
 ├── run.py                               ← commande unique
 ├── .env.example                         ← variables d'environnement (modèle)
 └── requirements.txt
-```
-
----
-
-## Architecture DB & Cache
-
-### Principe de séparation
-
-| Couche | Rôle | Technologie |
-|---|---|---|
-| **Source de vérité** | Profil, candidatures, résultats définitifs | Supabase / Postgres *(SaaS)* ou fichiers locaux *(local)* |
-| **Cache & accélérateur** | Résultats déjà calculés, quotas, jobs en cours, rate limit | Redis / Upstash *(optionnel)* ou mémoire locale |
-
-> Redis ne remplace **jamais** la source de vérité. Il stocke temporairement ce qui est coûteux à recalculer ou à re-fetcher.
-
----
-
-### Mode local (actuel)
-
-```
-master_profile.xlsx     → source de vérité (expériences, bullets, compétences)
-data/output/*.docx      → résultats générés
-.env                    → quotas Gemini gérés côté script (GEMINI_DAILY_LIMIT_PER_MODEL)
-```
-
-Pas de DB externe, pas de Redis. Le cache quotas est géré en mémoire dans `gemini_client.py`.
-
----
-
-### Mode SaaS (roadmap)
-
-```
-Supabase/Postgres       → profils, candidatures, outputs, logs
-Redis / Upstash         → cache résultats, quotas IA, locks anti-double-run, rate limit
-```
-
-#### Ce qui va dans Supabase
-
-- Profil utilisateur (expériences, compétences, certifications)
-- Historique des candidatures
-- CVs générés (référence + metadata)
-- Logs d'audit
-- Crédits et paiements Stripe
-
-#### Ce qui va dans Redis
-
-| Clé | Usage | TTL |
-|---|---|---|
-| `result:cv:{input_hash}` | CV déjà généré pour un même input | 24h |
-| `quota:user:{user_id}:gemini:daily` | Compteur d'appels Gemini du jour | Reset minuit |
-| `quota:user:{user_id}:runs:hour` | Rate limit runs par heure | 1h |
-| `job:{job_id}:status` | Statut du job en cours (`running`, `done`, `failed`) | 2h |
-| `job:{job_id}:progress` | Progression (0–100) et étape courante | 2h |
-| `lock:run:{input_hash}` | Anti-double-run si même input en cours | 5min |
-| `rate:ip:{ip}:signup` | Protection anti-spam inscription | 24h |
-
-#### Logique de fallback (mode dégradé)
-
-```
-Quota Gemini OK    → génération fraîche + mise en cache Redis
-Quota dépassé      → servir résultat Redis (stale cache)  + afficher "résultat mis en cache"
-Redis miss + quota dépassé → proposer refresh ultérieur
-Mode free          → mock/démo sans appel IA
-```
-
----
-
-### Structure cible du module cache
-
-```
-lib/
-  cache/
-    cache.ts            ← interface CacheProvider
-    keys.ts             ← clés standardisées (ex: cacheKeys.cvResult(hash))
-    memory-provider.ts  ← dev local (aucune dépendance)
-    redis-provider.ts   ← prod / Upstash
-  rate-limit.ts
-  db.ts
-worker/
-  job-cache.ts          ← statut jobs temps réel
-engine/
-  output-cache.ts       ← cache résultats CV
-```
-
-#### Interface unique
-
-```typescript
-export interface CacheProvider {
-  get<T>(key: string): Promise<T | null>
-  set<T>(key: string, value: T, ttlSeconds?: number): Promise<void>
-  del(key: string): Promise<void>
-  remember<T>(key: string, ttlSeconds: number, compute: () => Promise<T>): Promise<T>
-}
-```
-
-Le template fonctionne **sans Redis** par défaut (provider mémoire). En production, on bascule sur Redis/Upstash via `CACHE_PROVIDER=redis`.
-
----
-
-### Variables d'environnement cache
-
-```env
-# Cache provider : "memory" (défaut local) ou "redis" (prod)
-CACHE_PROVIDER=memory
-
-# Redis standard
-REDIS_URL=
-
-# Upstash (serverless / edge)
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-
-# TTL par défaut en secondes (1h)
-CACHE_DEFAULT_TTL_SECONDS=3600
 ```
 
 ---
