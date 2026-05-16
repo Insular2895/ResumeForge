@@ -1,35 +1,26 @@
-# Structure attendue
+**Mr Lucas PERTUSA**
 
-Ce template sert uniquement de reference de generation pour Gemini. Il ne doit pas etre exporte comme lettre finale.
+1 Place des Bannes  
+27710 St Georges Motel  
+tel : 07.66.40.32.00
 
-La lettre finale doit respecter cette logique :
+email : [lucaspertusa.pro@gmail.com](mailto:lucaspertusa.pro@gmail.com)
 
-1. Introduction ciblee :
-   - entreprise
-   - poste
-   - lien direct avec le profil
+							à		**\[\[LM\_COMPANY\]\]**
 
-2. Paragraphe preuve CV :
-   - experience principale du CV
-   - termes techniques pertinents
-   - competence operationnelle liee au poste
+\[\[LM\_COMPANY\_ADDRESS\_LINE\_1\]\]
 
-3. Paragraphe entreprise / motivation :
-   - 1 a 3 faits entreprise autorises
-   - vocabulaire officiel
-   - angle apprentissage ou long terme si pertinent
+               						***\[\[LM\_COMPANY\_POSTAL\_CITY\]\]***
 
-4. Conclusion :
-   - disponibilite
-   - motivation sobre
-   - projection professionnelle
+***A l’attention des ressources humaines***  
+*\[\[LM\_DEPARTMENT\]\]*
 
-Contraintes :
+Chère Madame,									
 
-- pas de markdown dans la lettre finale
-- pas de bullet points
-- pas d'annotations
-- pas de placeholders visibles
-- ton professionnel, direct, naturel
-- 220 a 340 mots environ
+\[\[LM\_SALUTATION\]\],
 
+\[\[LM\_FINAL\_LETTER\]\]
+
+Le \[\[LM\_DATE\]\]
+
+Lucas pertusa 
