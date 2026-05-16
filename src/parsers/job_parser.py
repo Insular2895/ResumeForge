@@ -98,11 +98,19 @@ def get_lines(text: str):
 
 
 def extract_labeled_value(text: str, labels):
+    lines = str(text or "").replace("\r", "\n").split("\n")
     for label in labels:
         pattern = rf"(?im)^\s*{re.escape(label)}\s*[:\-]\s*(.+?)\s*$"
         match = re.search(pattern, text)
         if match:
             return clean_value(match.group(1))
+
+        for index, line in enumerate(lines):
+            if clean_value(line).casefold() == label.casefold():
+                for next_line in lines[index + 1:index + 5]:
+                    value = clean_value(next_line)
+                    if value and value != "&nbsp;":
+                        return value
     return ""
 
 

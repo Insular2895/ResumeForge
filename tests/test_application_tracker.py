@@ -17,6 +17,8 @@ def test_application_tracker_has_no_lm_markdown_path(tmp_path):
             "timestamp": "2026-05-15T12:00:10",
             "company": "Ipsen",
             "job_title": "Coordinateur ADV Import-Export",
+            "salary": "40 000 €",
+            "location": "Noisiel (77)",
             "job_family": "operations_supply_chain",
             "cv_docx_path": "data/output/CV.docx",
             "lm_docx_path": "data/output/cover_letters/LM.docx",
@@ -30,6 +32,8 @@ def test_application_tracker_has_no_lm_markdown_path(tmp_path):
 
     content = tracker_path.read_text(encoding="utf-8")
     assert row["lm_docx_path"] == "data/output/cover_letters/LM.docx"
+    assert row["salary"] == "40 000 €"
+    assert row["location"] == "Noisiel (77)"
     assert "lm_md_path" not in content
     assert "cv_markdown_path" not in content
     assert row["selected_experiences"] == "Blurry - ADV - 2024 - 2025"
