@@ -76,3 +76,77 @@ find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec
 ```
 
 Les JSON techniques de `data/output/` et le cache `data/company_profiles/` sont masqués dans VS Code par `.vscode/settings.json`.
+
+## 9. Mode VS Code clean
+
+Masque le code, la doc, les templates et les fichiers techniques pour garder seulement l'usage quotidien visible.
+
+```bash
+src/.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path(".vscode/settings.json")
+settings = json.loads(path.read_text(encoding="utf-8"))
+files_exclude = settings.setdefault("files.exclude", {})
+files_exclude.update({
+    ".env.example": True,
+    ".gitignore": True,
+    ".github": True,
+    "assets": True,
+    "cv-tailor.code-workspace": True,
+    "data/output/.gitkeep": True,
+    "data/output/*.json": True,
+    "data/company_profiles": True,
+    "data/.claude": True,
+    "docs": True,
+    "LICENSE": True,
+    "README.md": True,
+    "requirements.txt": True,
+    "run.py": True,
+    "run_application.py": True,
+    "scripts": True,
+    "src": True,
+    "templates": True,
+    "tests": True,
+    ".claude": True,
+    "credentials": True,
+})
+path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+```
+
+## 10. Mode VS Code dev
+
+Réaffiche le code, la doc, les templates et les fichiers techniques.
+
+```bash
+src/.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path(".vscode/settings.json")
+settings = json.loads(path.read_text(encoding="utf-8"))
+files_exclude = settings.setdefault("files.exclude", {})
+for key in [
+    ".env.example",
+    ".gitignore",
+    ".github",
+    "assets",
+    "cv-tailor.code-workspace",
+    "data/output/*.json",
+    "docs",
+    "LICENSE",
+    "README.md",
+    "requirements.txt",
+    "run.py",
+    "run_application.py",
+    "scripts",
+    "src",
+    "templates",
+    "tests",
+]:
+    files_exclude.pop(key, None)
+path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+```
