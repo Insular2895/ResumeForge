@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="184" height="28" viewBox="0 0 184 28" role="img" aria-labelledby="title desc">
+  <title id="title">Personal use license animated badge</title>
+  <desc id="desc">Animated README badge for a personal-use-only license.</desc>
+  <defs>
+    <linearGradient id="badgeBg" x1="0" x2="1">
+      <stop offset="0%" stop-color="#20252e"/>
+      <stop offset="100%" stop-color="#7a4d1d"/>
+    </linearGradient>
+  </defs>
+  <rect width="184" height="28" rx="6" fill="url(#badgeBg)"/>
+  <rect x="0.5" y="0.5" width="183" height="27" rx="5.5" fill="none" stroke="#ffffff" stroke-opacity="0.16"/>
+  <g transform="translate(12 7)" fill="none" stroke="#ffe08a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="6" width="12" height="9" rx="2" fill="#ffe08a" fill-opacity="0.18"/>
+    <path d="M4.5 6V4a3.5 3.5 0 0 1 7 0v2"/>
+    <circle cx="8" cy="10.5" r="1" fill="#ffe08a" stroke="none">
+      <animate attributeName="opacity" values="1;0.35;1" dur="1.8s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+  <text x="34" y="18" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" fill="#ffffff">License</text>
+  <text x="92" y="18" font-family="Inter,Arial,sans-serif" font-size="12" fill="#ffe08a">Personal Use</text>
+</svg>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="122" height="28" viewBox="0 0 122 28" role="img" aria-labelledby="title desc">
+  <title id="title">Gemini AI animated badge</title>
+  <desc id="desc">Animated README badge using the Google Gemini icon from Simple Icons.</desc>
+  <defs>
+    <linearGradient id="badgeBg" x1="0" x2="1">
+      <stop offset="0%" stop-color="#20252e"/>
+      <stop offset="100%" stop-color="#3d4d90"/>
+    </linearGradient>
+  </defs>
+  <rect width="122" height="28" rx="6" fill="url(#badgeBg)"/>
+  <rect x="0.5" y="0.5" width="121" height="27" rx="5.5" fill="none" stroke="#ffffff" stroke-opacity="0.16"/>
+  <g transform="translate(10 6) scale(.66)">
+    <!-- Google Gemini icon path from Simple Icons: https://simpleicons.org/icons/googlegemini.svg -->
+    <path fill="#ffffff" d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81">
+      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="7s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.55;1" dur="2s" repeatCount="indefinite"/>
+    </path>
+  </g>
+  <text x="34" y="18" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" fill="#ffffff">Gemini</text>
+  <text x="88" y="18" font-family="Inter,Arial,sans-serif" font-size="12" fill="#dce4ff">AI</text>
+</svg>

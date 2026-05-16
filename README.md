@@ -6,10 +6,12 @@
 
 **Génère automatiquement un CV DOCX ciblé à partir d'une offre d'emploi**
 
-[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Gemini](https://img.shields.io/badge/Gemini-AI-4285F4?style=flat-square&logo=google&logoColor=white)](https://aistudio.google.com)
-[![Google Sheets](https://img.shields.io/badge/Google_Sheets-Tracker-34A853?style=flat-square&logo=googlesheets&logoColor=white)](https://sheets.google.com)
-[![License](https://img.shields.io/badge/License-Personal_Use_Only-orange?style=flat-square)](LICENSE)
+<p>
+  <a href="https://python.org"><img src="docs/assets/badge-python-animated.svg" alt="Python 3.9+" height="28"></a>
+  <a href="https://aistudio.google.com"><img src="docs/assets/badge-gemini-animated.svg" alt="Gemini AI" height="28"></a>
+  <a href="https://sheets.google.com"><img src="docs/assets/badge-google-sheets-animated.svg" alt="Google Sheets tracker" height="28"></a>
+  <a href="LICENSE"><img src="docs/assets/badge-license-personal-animated.svg" alt="License Personal Use Only" height="28"></a>
+</p>
 
 </div>
 
