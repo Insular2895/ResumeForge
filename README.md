@@ -1,8 +1,45 @@
+<div align="center">
+
+<img src="docs/assets/resumeforge-animated.svg" alt="ResumeForge" width="520">
+
 # ResumeForge
+
+**Pipeline local pour générer un dossier de candidature ciblé : CV, lettre de motivation, validation et tracker.**
+
+<p>
+  <a href="https://python.org"><img src="docs/assets/badge-python-animated.svg" alt="Python 3.9+" height="28"></a>
+  <a href="https://aistudio.google.com"><img src="docs/assets/badge-gemini-animated.svg" alt="Gemini AI" height="28"></a>
+  <a href="https://sheets.google.com"><img src="docs/assets/badge-google-sheets-animated.svg" alt="Google Sheets tracker" height="28"></a>
+  <a href="LICENSE"><img src="docs/assets/badge-license-personal-animated.svg" alt="License Personal Use Only" height="28"></a>
+</p>
+
+</div>
+
+---
 
 Pipeline local pour générer un dossier de candidature ciblé à partir d'une offre d'emploi.
 
 ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, un rapport de validation et un suivi de candidature, en gardant les fichiers privés hors Git.
+
+<div align="center">
+
+<img src="assets/cv_output_example.png" alt="Exemple de CV généré" width="480">
+
+*Exemple de CV généré — [voir le PDF complet](assets/cv_output_example.pdf)*
+
+</div>
+
+## Fonctionnalités
+
+| Fonction | Rôle |
+|---|---|
+| CV ciblé | Sélectionne les expériences et adapte les bullets à l'offre |
+| CV Markdown | Produit une source propre pour Gemini, dérivée du CV final |
+| Lettre DOCX | Génère uniquement une LM finale Word, sans export Markdown |
+| Validation | Bloque la LM si elle invente un chiffre, un outil, une expérience ou un fait entreprise |
+| Base métier | Réutilise les termes précis par domaine sans alourdir le prompt |
+| Tracker | Met à jour le suivi de candidature sans casser le pipeline si Sheets est indisponible |
+| Sécurité | Garde `.env`, profils, templates privés et outputs hors Git |
 
 ## Sorties
 
