@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/resumeforge-animated.svg" alt="ResumeForge animated logo" width="112" />
-
 # ResumeForge
 
 **Génère automatiquement un CV DOCX ciblé à partir d'une offre d'emploi**
