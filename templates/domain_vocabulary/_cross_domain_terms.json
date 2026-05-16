@@ -1,0 +1,12 @@
+{
+  "coordination": ["supply_chain", "project_management", "operations", "customer_success"],
+  "reporting": ["supply_chain", "data", "finance", "marketing", "operations"],
+  "forecasting": ["supply_chain", "data", "finance", "sales"],
+  "compliance": ["supply_chain", "finance", "operations", "legal"],
+  "stakeholder_management": ["project_management", "operations", "marketing", "supply_chain"],
+  "process_improvement": ["operations", "supply_chain", "data", "project_management"],
+  "data_quality": ["data", "finance", "supply_chain", "operations"],
+  "customer_relationship": ["sales", "customer_success", "supply_chain", "marketing"],
+  "risk_monitoring": ["finance", "supply_chain", "operations", "project_management"]
+}
+

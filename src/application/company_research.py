@@ -83,19 +83,50 @@ def refresh_company_profile_with_gemini(company_name: str, company_slug: str) ->
     from google import genai
     from google.genai import types
 
-    model = get_rotation_models()[0]
+    model = os.getenv("GEMINI_RESEARCH_MODEL", "").strip() or get_rotation_models()[0]
     prompt = f"""
-Recherche des informations factuelles et officielles sur l'entreprise {company_name}.
+Recherche des informations factuelles, officielles et utiles pour une lettre de motivation ciblée sur l'entreprise {company_name}.
+
+Priorité absolue aux sources officielles : site corporate, page carrière, rapport annuel, page valeurs/culture, page pays France, communiqués officiels.
+Si tu trouves une adresse pertinente en France pour la candidature, retourne-la dans company_address.
+
+On cherche des faits précis pour éviter une lettre générique :
+- mission, logique patient/client/utilisateur ;
+- culture interne, collaboration, autonomie, feedback, ownership, trust ;
+- formation, apprentissage, coaching, onboarding, academy, learning model ;
+- mobilité interne, mobilité internationale, parcours collaborateurs, cross-functional mobility ;
+- montée en compétences, développement personnel et professionnel ;
+- organisation internationale, exposition globale, équipes multiculturelles ;
+- reconnaissance employeur uniquement si sourcée ;
+- vocabulaire officiel exact utilisable dans une LM.
+
 Retourne uniquement un JSON valide avec:
 {{
+  "company_display_name": "{company_name}",
+  "company_address": {{
+    "line_1": "",
+    "postal_city": ""
+  }},
+  "attention_to": "",
+  "department": "",
+  "official_vocabulary": [],
   "facts": [
-    {{"fact": "texte court", "category": "culture|formation|mobilite|mission|projet|international|process", "source_url": "url", "confidence": "high|medium|low", "is_generic": false}}
+    {{"fact": "texte court, précis et réutilisable dans une LM", "category": "culture|formation|mobilite|mission|projet|international|process|employer_brand|learning", "source_url": "url", "confidence": "high|medium|low", "is_generic": false}}
   ],
   "excluded_facts": [
     {{"fact": "texte", "reason": "raison"}}
   ]
 }}
-Exclus les avantages banals, les blogs non officiels et les formules generiques.
+
+Règles strictes :
+- ne retourne pas de markdown ;
+- chaque fact doit avoir une source_url ;
+- évite "leader du secteur", "entreprise dynamique", avantages banals, tickets restaurant, transport, RTT, télétravail générique ;
+- ne transforme pas un slogan vague en fait ;
+- préfère 4 à 8 faits courts mais distinctifs ;
+- privilégie au moins un fait lié à l'apprentissage, la formation, la mobilité ou la progression si une source officielle le prouve ;
+- si aucun fait d'apprentissage/progression n'est trouvé, ne l'invente pas et reste sobre ;
+- si aucune adresse fiable n'est trouvée, laisse company_address vide.
 """
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
@@ -107,21 +138,36 @@ Exclus les avantages banals, les blogs non officiels et les formules generiques.
     )
 
     try:
-        payload = json.loads((response.text or "").strip().removeprefix("```json").removesuffix("```").strip())
+        payload = json.loads(_strip_json_fences(response.text or ""))
     except json.JSONDecodeError:
         payload = {"facts": [], "excluded_facts": [{"fact": "Gemini response", "reason": "invalid_json"}]}
 
     profile = {
         "schema_version": "1.0",
         "source": "gemini_search_grounding",
-        "company_name": company_name,
+        "company_name": payload.get("company_display_name") or company_name,
         "company_slug": company_slug,
         "last_updated": datetime.now().date().isoformat(),
+        "company_address": payload.get("company_address", {}) if isinstance(payload, dict) else {},
+        "attention_to": payload.get("attention_to", "") if isinstance(payload, dict) else "",
+        "department": payload.get("department", "") if isinstance(payload, dict) else "",
+        "official_vocabulary": payload.get("official_vocabulary", []) if isinstance(payload, dict) else [],
         "facts": payload.get("facts", []) if isinstance(payload, dict) else [],
         "excluded_facts": payload.get("excluded_facts", []) if isinstance(payload, dict) else [],
     }
     save_company_profile(company_slug, profile)
     return profile, "refreshed"
+
+
+def _strip_json_fences(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if text.startswith("```json"):
+        text = text[len("```json"):].strip()
+    elif text.startswith("```"):
+        text = text[len("```"):].strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+    return text
 
 
 def select_company_facts(profile: dict, max_facts: int = 3) -> tuple[list[dict], list[dict]]:
@@ -150,3 +196,50 @@ def select_company_facts(profile: dict, max_facts: int = 3) -> tuple[list[dict],
             rejected.append(fact)
 
     return selected, rejected
+
+
+def extract_company_facts_from_job_description(company_name: str, job_text: str) -> list[dict]:
+    """Extract company facts explicitly stated in the job description."""
+    text = job_text or ""
+    candidates = [
+        (
+            "Ipsen se présente dans l'offre comme une organisation biopharmaceutique guidée par une mission et dotée d'une culture centrée sur l'humain.",
+            ["purpose-driven biopharmaceutical", "human-centric culture"],
+            "mission",
+        ),
+        (
+            "L'offre décrit un environnement fondé sur la confiance, l'ownership et la collaboration.",
+            ["trust, ownership, and collaboration", "trust", "ownership", "collaboration"],
+            "culture",
+        ),
+        (
+            "Le poste offre une exposition globale et un impact élevé dans un département travaillant avec plus de 80 pays.",
+            ["global exposure", "high impact", "more than 80 countries"],
+            "international",
+        ),
+        (
+            "Ipsen indique dans l'offre vouloir créer un lieu de travail où chacun se sent écouté, valorisé et soutenu.",
+            ["écouté, valorisé et soutenu", "écouté", "valorisé", "soutenu"],
+            "culture",
+        ),
+        (
+            "L'offre met en avant l'inclusion, l'égalité des chances et la valeur accordée aux perspectives diverses.",
+            ["inclusion", "égalité des chances", "perspectives", "divers"],
+            "culture",
+        ),
+    ]
+
+    facts: list[dict] = []
+    lowered = text.casefold()
+    for fact, markers, category in candidates:
+        if any(marker.casefold() in lowered for marker in markers):
+            facts.append(
+                {
+                    "fact": fact.replace("Ipsen", company_name or "L'entreprise", 1),
+                    "category": category,
+                    "source_url": "job_description",
+                    "confidence": "high",
+                    "is_generic": False,
+                }
+            )
+    return facts

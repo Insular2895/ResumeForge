@@ -123,9 +123,72 @@ Entreprise ciblee : nom, adresse, recruteur, service, poste, valeurs, mission, c
 
 Metier cible : famille metier, missions principales, contraintes operationnelles, interlocuteurs, outils, documents, process, qualite, delais, reporting, relation client, relation fournisseur, coordination interservices, suivi des risques, conformite, performance, pilotage et execution.
 
+## 7 bis. Methodologie entreprise reproductible
+
+Pour chaque entreprise, chercher d'abord dans les sources officielles :
+
+1. Mission, impact et logique client/patient/utilisateur.
+2. Culture interne : collaboration, autonomie, feedback, ownership, confiance, excellence, impact.
+3. Formation et apprentissage : academy, learning model, coaching, onboarding, cours, certifications, mentoring.
+4. Mobilite et progression : mobilite interne, mobilite internationale, parcours collaborateurs, cross-functional mobility.
+5. Organisation internationale : pays, equipes, exposition globale, environnement multiculturel.
+6. Vocabulaire officiel exact.
+
+Si un fait officiel prouve formation, apprentissage, mobilite ou progression, utiliser cet angle pour montrer que le candidat veut progresser dans un cadre structure tout en contribuant rapidement.
+
+Si aucun fait officiel ne le prouve, rester sobre : parler de la capacite d'apprentissage du candidat, mais ne pas affirmer que l'entreprise offre des cours, un parcours ou une mobilite.
+
 ## 8. Style attendu
 
 Le style doit etre professionnel, direct, naturel, precis, credible, operationnel, ambitieux sans exces, oriente contribution et non generique.
+
+## 8 bis. Formulation ATS et preuves ABC/XYZ
+
+La LM doit rester naturelle, mais les preuves CV doivent etre formulees avec une logique proche de ABC ou XYZ lorsque c'est pertinent.
+
+ABC :
+
+- Action realisee ;
+- Benefice, resultat ou effet operationnel ;
+- Contexte metier.
+
+XYZ :
+
+- resultat obtenu ;
+- par action menee ;
+- dans un contexte donne.
+
+Exemples de logique, sans copier mot pour mot :
+
+- "Chez Blurry, j'ai coordonne des flux import/export pour plusieurs partenaires, en fiabilisant le suivi des commandes et des documents dans un contexte international."
+- "Cette experience m'a permis de renforcer la coordination entre commandes, transport, stock et interlocuteurs externes, avec une attention particuliere aux delais et a la conformite."
+
+Regles :
+
+- ne jamais ajouter de chiffre absent du CV Markdown, de l'offre ou des faits autorises ;
+- ne pas transformer une exposition en expertise ;
+- reprendre naturellement les mots-cles ATS quand ils sont autorises : ADV, import/export, SAP, Incoterms, commandes, SLA, lettres de credit, documentation commerciale, transport, conformite, douanes, stocks, FEFO/FIFO, coordination interservices, finance, qualite, procurement, warehouse, transport ;
+- si un mot-cle est present dans l'offre mais absent du CV, l'utiliser comme enjeu du poste et non comme competence maitrisee.
+
+## 8 ter. Precision metier par vagues
+
+La LM doit montrer une comprehension precise du metier sans alourdir le style.
+
+Raisonner par vagues :
+
+1. Domaine large : supply chain, ADV, import/export, logistique internationale.
+2. Processus : prise de commande, expedition, transport, douane, stock, facturation, paiement, relation client, coordination interservices.
+3. Documents / outils / contraintes : SAP, ERP, Incoterms, FCA, CPT, DAP, commercial invoice, packing list, bill of lading, airway bill, lettres de credit, documents douaniers, SLA, FEFO/FIFO.
+4. Risques operationnels : retard transporteur, cut-off, erreur documentaire, blocage douane, ecart stock, non-conformite, litige client, qualite de service.
+
+Regles :
+
+- combiner 2 a 4 vagues dans les phrases de preuve ;
+- ne pas empiler des termes sans logique ;
+- si un terme est dans le CV Markdown, il peut prouver une exposition candidat ;
+- si un terme est seulement dans l'offre, il doit etre presente comme enjeu du poste ;
+- si un terme est seulement implicite au domaine, il doit rester prudent ;
+- ne jamais presenter un document precis comme deja pratique si le CV ne le prouve pas.
 
 ## 9. Interdictions
 
@@ -171,4 +234,3 @@ Chaque information doit etre justifiee par :
 2. l'offre ;
 3. `application_context.json` ;
 4. les faits entreprise autorises.
-

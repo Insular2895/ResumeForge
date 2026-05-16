@@ -13,6 +13,24 @@ BANNED_CLICHES = [
     "leader inconteste",
     "votre prestigieuse entreprise",
     "je suis le candidat ideal",
+    "opportunite incontournable",
+    "organisation reconnue",
+    "votre organisation reconnue",
+    "mon expertise",
+    "cette expertise",
+    "expertise",
+    "maitrise des flux",
+    "maîtrise des flux",
+    "maitrise technique",
+    "maîtrise technique",
+    "maitrise",
+    "maîtrise",
+    "maîtrise de sap",
+    "maitrise de sap",
+    "bien cordialement",
+    "cordialement",
+    "expert ats",
+    "optimisé ats",
 ]
 
 BANAL_BENEFITS = [
@@ -47,12 +65,37 @@ def _contains_placeholder(text: str) -> bool:
     return "[[" in (text or "") or "]]" in (text or "")
 
 
+def _contains_salutation_start(text: str) -> bool:
+    first_line = (text or "").strip().splitlines()[0].strip().casefold() if (text or "").strip() else ""
+    return first_line in {"madame,", "monsieur,", "madame, monsieur,", "chere madame,", "cher monsieur,"}
+
+
 def _words(text: str) -> list[str]:
     return re.findall(r"\b[\wÀ-ÿ+#./-]{2,}\b", text or "")
 
 
 def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, " ".join(_words(a.lower())), " ".join(_words(b.lower()))).ratio()
+
+
+def _experience_is_in_cv(experience, cv_lower: str) -> bool:
+    if isinstance(experience, dict):
+        parts = [
+            experience.get("company", ""),
+            experience.get("position_title", ""),
+            experience.get("role", ""),
+            experience.get("dates", ""),
+        ]
+        meaningful = [str(part).strip() for part in parts if str(part).strip()]
+        return bool(meaningful) and all(_normalize(part) in cv_lower for part in meaningful[:2])
+
+    text = str(experience).strip()
+    if not text:
+        return True
+    if _normalize(text) in cv_lower:
+        return True
+    parts = [part.strip() for part in re.split(r"[-|,]", text) if part.strip()]
+    return bool(parts) and all(_normalize(part) in cv_lower for part in parts[:2])
 
 
 def validate_letter_result(
@@ -85,6 +128,8 @@ def validate_letter_result(
         errors.append("contains_demo_annotation")
     if _contains_placeholder(final_letter):
         errors.append("contains_placeholder")
+    if _contains_salutation_start(final_letter):
+        errors.append("contains_salutation_in_final_letter")
     if company and company.casefold() not in final_letter.casefold():
         errors.append("company_not_mentioned")
     if job_title and not _job_title_is_mentioned(job_title, final_letter):
@@ -96,10 +141,10 @@ def validate_letter_result(
 
     cv_lower = _normalize(cv_markdown)
     for experience in letter_result.get("cv_experiences_used", []):
-        if experience and _normalize(str(experience)) not in cv_lower:
+        if experience and not _experience_is_in_cv(experience, cv_lower):
             errors.append(f"experience_absent_from_cv: {experience}")
     for tool in letter_result.get("cv_technical_terms_reused", []):
-        if tool and _normalize(str(tool)) not in cv_lower:
+        if tool and not _term_is_in_cv(str(tool), cv_lower):
             errors.append(f"tool_absent_from_cv: {tool}")
 
     allowed_fact_texts = [_normalize(fact.get("fact", "")) for fact in selected_facts if isinstance(fact, dict)]
@@ -108,7 +153,7 @@ def validate_letter_result(
         errors.append("too_many_company_facts")
     for fact in retained_facts:
         fact_norm = _normalize(fact)
-        if fact_norm and not any(fact_norm in allowed or allowed in fact_norm for allowed in allowed_fact_texts):
+        if fact_norm and not any(_company_fact_matches(fact_norm, allowed) for allowed in allowed_fact_texts):
             errors.append(f"unauthorized_company_fact: {fact}")
 
     final_lower = _normalize(final_letter)
@@ -180,3 +225,31 @@ def _job_title_is_mentioned(job_title: str, final_letter: str) -> bool:
         return True
     matched = sum(1 for word in title_words if word in final)
     return matched >= max(1, min(3, len(title_words)))
+
+
+def _company_fact_matches(candidate: str, allowed: str) -> bool:
+    if not candidate or not allowed:
+        return False
+    if candidate in allowed or allowed in candidate:
+        return True
+
+    candidate_words = {word for word in _words(candidate) if len(word) > 3}
+    allowed_words = {word for word in _words(allowed) if len(word) > 3}
+    if not candidate_words or not allowed_words:
+        return False
+
+    overlap = len(candidate_words & allowed_words) / max(1, min(len(candidate_words), len(allowed_words)))
+    return overlap >= 0.55 or _similarity(candidate, allowed) >= 0.62
+
+
+def _term_is_in_cv(term: str, cv_lower: str) -> bool:
+    term_norm = _normalize(term)
+    if term_norm in cv_lower:
+        return True
+
+    parts = [part for part in re.split(r"[/,;|+-]", term_norm) if len(part.strip()) > 3]
+    if parts and all(part.strip() in cv_lower for part in parts):
+        return True
+
+    words = [word for word in _words(term_norm) if len(word) > 3]
+    return bool(words) and all(word in cv_lower for word in words)

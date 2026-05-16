@@ -6,6 +6,14 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 STATE_PATH = ROOT_DIR / "data" / "output" / "gemini_rotation_state.json"
+DEFAULT_ROTATION_MODELS = "gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash"
+DEFAULT_OPTIONAL_MODELS = "gemini-2.0-flash"
+TEMPORARY_MODEL_ERROR_MARKERS = [
+    "429 RESOURCE_EXHAUSTED",
+    "404 NOT_FOUND",
+    "quota",
+    "not found",
+]
 
 
 def is_gemini_enabled():
@@ -15,15 +23,25 @@ def is_gemini_enabled():
 def get_rotation_models():
     raw = os.getenv(
         "GEMINI_ROTATION_MODELS",
-        "gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-flash-preview-05-20",
+        DEFAULT_ROTATION_MODELS,
     )
+    optional_raw = os.getenv("GEMINI_OPTIONAL_MODELS", "")
 
-    models = [item.strip() for item in raw.split(",") if item.strip()]
+    models = _parse_model_list(raw)
+    optional_models = _parse_model_list(optional_raw)
+
+    for optional_model in optional_models:
+        if optional_model not in models:
+            models.append(optional_model)
 
     if not models:
         models = ["gemini-2.5-flash-lite"]
 
     return models
+
+
+def _parse_model_list(raw):
+    return [item.strip() for item in (raw or "").split(",") if item.strip()]
 
 
 def get_daily_limit_per_model():
@@ -38,7 +56,7 @@ def get_daily_limit_per_model():
 def load_rotation_state():
     today = date.today().isoformat()
 
-    default = {"date": today, "last_index": -1, "usage": {}}
+    default = {"date": today, "last_index": -1, "usage": {}, "blocked": {}}
 
     if not STATE_PATH.exists():
         return default
@@ -52,6 +70,7 @@ def load_rotation_state():
         return default
 
     state.setdefault("usage", {})
+    state.setdefault("blocked", {})
     state.setdefault("last_index", -1)
 
     return state
@@ -76,11 +95,14 @@ def choose_next_model():
     state = load_rotation_state()
 
     usage = state.get("usage", {})
+    blocked = state.get("blocked", {})
     last_index = int(state.get("last_index", -1))
 
     for offset in range(1, len(models) + 1):
         index = (last_index + offset) % len(models)
         model = models[index]
+        if blocked.get(model):
+            continue
         used = int(usage.get(model, 0))
 
         if used < daily_limit:
@@ -91,6 +113,18 @@ def choose_next_model():
             return model
 
     return None
+
+
+def mark_model_blocked(model, reason):
+    state = load_rotation_state()
+    blocked = state.setdefault("blocked", {})
+    blocked[model] = str(reason)[:300]
+    save_rotation_state(state)
+
+
+def is_temporary_model_error(error):
+    text = str(error).lower()
+    return any(marker.lower() in text for marker in TEMPORARY_MODEL_ERROR_MARKERS)
 
 
 def ask_gemini(prompt, model=None):
@@ -112,18 +146,31 @@ def ask_gemini(prompt, model=None):
     except ImportError:
         raise RuntimeError("Package google-genai manquant. Lance : pip install google-genai")
 
-    selected_model = model or choose_next_model()
-
-    if not selected_model:
-        raise RuntimeError("Limite quotidienne locale atteinte pour tous les modèles Gemini.")
-
-    print(f"[Gemini] Modèle utilisé : {selected_model}")
-
     client = genai.Client(api_key=api_key)
 
-    response = client.models.generate_content(
-        model=selected_model,
-        contents=prompt,
-    )
+    last_error = None
+
+    while True:
+        selected_model = model or choose_next_model()
+
+        if not selected_model:
+            if last_error:
+                raise RuntimeError(f"Aucun modèle Gemini disponible après erreur : {last_error}")
+            raise RuntimeError("Limite quotidienne locale atteinte pour tous les modèles Gemini.")
+
+        print(f"[Gemini] Modèle utilisé : {selected_model}")
+
+        try:
+            response = client.models.generate_content(
+                model=selected_model,
+                contents=prompt,
+            )
+            break
+        except Exception as error:
+            last_error = error
+            if model or not is_temporary_model_error(error):
+                raise
+            print(f"[Gemini] Modèle ignoré temporairement : {selected_model} ({str(error).splitlines()[0]})")
+            mark_model_blocked(selected_model, error)
 
     return (response.text or "").strip()

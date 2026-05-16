@@ -1,0 +1,85 @@
+{
+  "domain": "retail_operations",
+  "aliases": [
+    "retail",
+    "service client",
+    "ADV retail",
+    "réseau de boutiques",
+    "franchise",
+    "administration des ventes"
+  ],
+  "waves": {
+    "1_domain_core": [
+      "administration des ventes",
+      "service client",
+      "retail",
+      "réseau de boutiques",
+      "franchise",
+      "commerce B2B",
+      "digital"
+    ],
+    "2_processes": [
+      "traitement des commandes",
+      "précommandes",
+      "expédition boutique",
+      "livraison réseau",
+      "facturation",
+      "litiges",
+      "royalties",
+      "tarifs",
+      "marges",
+      "remises",
+      "écoulement des stocks",
+      "back-up",
+      "continuité d'activité",
+      "coordination production planning qualité logistique commerce"
+    ],
+    "3_documents_tools_constraints": [
+      "ERP",
+      "SAP",
+      "Excel",
+      "recherche V",
+      "tableaux croisés dynamiques",
+      "tableaux de bord ADV",
+      "KPI service client",
+      "outil de commande",
+      "prix",
+      "marges",
+      "délais",
+      "promotions",
+      "factures",
+      "commandes direct fournisseurs"
+    ],
+    "4_operational_risks": [
+      "erreur de prix",
+      "écart de marge",
+      "retard de livraison",
+      "rupture produit",
+      "surstock",
+      "litige client",
+      "erreur de facturation",
+      "mauvaise circulation d'information",
+      "pic d'activité",
+      "discontinuité de service",
+      "insatisfaction boutique"
+    ]
+  },
+  "safe_formulations": [
+    "m'a exposé à la coordination entre commandes, stock et relation client",
+    "m'a permis de fiabiliser le suivi opérationnel",
+    "je comprends que ce poste demande une attention forte aux prix, marges, délais et litiges",
+    "cette base peut soutenir la qualité de service auprès d'un réseau de boutiques"
+  ],
+  "forbidden_overclaims": [
+    "expert retail",
+    "maîtrise complète de Choconet",
+    "spécialiste franchise",
+    "expert management ADV"
+  ],
+  "usage_rules": [
+    "Choconet ne peut être cité que comme outil du poste si absent du CV.",
+    "Le management d'équipe doit rester prudent si le CV ne prouve pas un management hiérarchique comparable.",
+    "Les termes prix, marges, remises et litiges peuvent être utilisés comme enjeux du poste s'ils sont dans la JD."
+  ]
+}
+

@@ -1,474 +1,346 @@
-<div align="center">
-
 # ResumeForge
 
-**Génère automatiquement un CV DOCX ciblé à partir d'une offre d'emploi**
+Pipeline local pour générer un dossier de candidature ciblé à partir d'une offre d'emploi.
 
-<p>
-  <a href="https://python.org"><img src="docs/assets/badge-python-animated.svg" alt="Python 3.9+" height="28"></a>
-  <a href="https://aistudio.google.com"><img src="docs/assets/badge-gemini-animated.svg" alt="Gemini AI" height="28"></a>
-  <a href="https://sheets.google.com"><img src="docs/assets/badge-google-sheets-animated.svg" alt="Google Sheets tracker" height="28"></a>
-  <a href="LICENSE"><img src="docs/assets/badge-license-personal-animated.svg" alt="License Personal Use Only" height="28"></a>
-</p>
+ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, un rapport de validation et un suivi de candidature, en gardant les fichiers privés hors Git.
 
-</div>
+## Sorties
 
----
-
-## Comment ça marche
-
-```
-job_description.txt  +  master_profile.xlsx  →  CV DOCX personnalisé  →  Google Sheets
-```
-
-1. Tu colles une offre d'emploi dans `data/input/job_description.txt`
-2. Le script **score** et **sélectionne** les expériences les plus pertinentes depuis ton Excel
-3. **Gemini optimise** les bullets pour coller à l'offre *(1 seul appel par CV)*
-4. Un **CV DOCX** est généré dans `data/output/`
-5. Une ligne de suivi est automatiquement envoyée dans **Google Sheets**
-
----
-
-## Résultat
-
-<div align="center">
-
-<img src="assets/cv_output_example.png" alt="Exemple de CV généré" width="480"/>
-
-*Exemple de CV généré — [📄 Voir le PDF complet](assets/cv_output_example.pdf)*
-
-</div>
-
----
-
-## Fonctionnalités
-
-| | |
-|---|---|
-| 🎯 **Scoring intelligent** | Sélection automatique des expériences par pertinence |
-| 🤖 **Gemini intégré** | Optimisation des bullets en 1 appel (rotation 3 modèles, 60 CV/jour) |
-| 📄 **Template DOCX** | Mise en page Word personnalisable via placeholders |
-| 📊 **Tracker Google Sheets** | Suivi automatique de chaque candidature |
-| 🔒 **Zéro donnée en ligne** | Tout tourne en local, tes données restent chez toi |
-
----
-
-## Pipeline candidature complet
-
-ResumeForge peut aussi générer un dossier de candidature complet :
+Commande principale :
 
 ```bash
 python run_application.py
 ```
 
-Le flux produit :
+Sorties attendues :
 
 ```text
-data/output/CV_....docx
-data/output/CV_....md
-data/output/application_context.json
-data/output/cover_letters/LM_....docx
-data/output/cover_letters/LM_...._validation.json
+data/output/
+├── CV_....docx
+├── CV_....md
+├── application_context.json
+└── cover_letters/
+    ├── LM_....docx
+    └── LM_...._validation.json
 ```
 
-La lettre de motivation finale est exportée uniquement en DOCX. Il n'y a pas de sortie finale `LM_....md`.
+La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
 
-Le CV Markdown est généré depuis le CV personnalisé final et sert uniquement de source lisible pour Gemini. La LM ne lit jamais directement `master_profile.xlsx` : elle utilise seulement le CV Markdown final, `application_context.json`, l'offre et les faits entreprise autorisés.
-
-Les fichiers suivants sont des références de génération pour Gemini, pas des sorties finales :
-
-- `templates/LM_template.md`
-- `templates/LM_demo_validee.md`
-- `templates/LM_instructions.md`
-
-Avant d'exporter la LM DOCX, ResumeForge écrit un rapport de validation JSON et bloque le rendu si la lettre contient un élément inventé : chiffre, expérience, outil, formation, projet, compétence, expertise ou fait entreprise non autorisé. Le tracker candidatures est ensuite mis à jour avec le statut de validation, le CV DOCX, le CV Markdown et la LM DOCX quand elle existe.
-
-La génération LM utilise une clé dédiée :
-
-```env
-GEMINI_LETTER_API_KEY=your_gemini_letter_api_key_here
-```
-
-Si cette clé est absente, `run_application.py` génère quand même le CV DOCX, le CV Markdown, `application_context.json`, puis écrit un rapport `skipped` sans créer de LM.
-
-Le template versionné est :
+## Logique
 
 ```text
-templates/base_cover_letter_example.docx
+offre d'emploi
+  + profil Excel privé
+  -> CV DOCX recruteur
+  -> CV Markdown pour Gemini
+  -> application_context.json
+  -> LM DOCX finale
+  -> validation JSON
+  -> tracker candidatures
 ```
 
-Le vrai template local, privé et ignoré par Git, est :
+La lettre de motivation ne lit jamais directement `master_profile.xlsx`.
+
+Elle utilise uniquement :
+
+- le CV Markdown final ;
+- l'offre d'emploi ;
+- `application_context.json` ;
+- les faits entreprise autorisés ;
+- les fichiers de référence LM.
+
+La validation bloque l'export DOCX si la LM contient un élément inventé : chiffre, outil, expérience, formation, compétence, fait entreprise, annotation, placeholder ou survente d'expertise.
+
+## Commandes
+
+Les commandes prêtes à l'emploi sont dans [COMMANDS.md](COMMANDS.md).
+
+Les plus utiles :
 
 ```bash
-cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
+# Pipeline complet, affichage propre
+python run_application.py --quiet
+
+# Pipeline complet, logs détaillés
+python run_application.py
+
+# Ancien pipeline CV seul
+python run.py
+
+# Tests
+python -m pytest
+
+# Enrichir manuellement une base métier depuis l'offre courante
+python scripts/enrich_domain_vocabulary.py --domain retail_operations
 ```
-
-Ensuite, ouvre `templates/base_cover_letter.docx` dans Word ou LibreOffice, adapte la mise en page, et garde les placeholders exactement identiques.
-
----
-
-## Pourquoi Gemini ?
-
-L'API Gemini de Google propose un **niveau gratuit généreux** (sans carte bancaire requise pour démarrer), ce qui en fait le choix évident pour un usage personnel et intensif.
-
-### Quotas gratuits par modèle
-
-| Modèle | RPM | TPM | RPD |
-|---|---|---|---|
-| **Gemini 2.5 Flash Lite** | 10 req/min | 250K tokens/min | 500/jour |
-| **Gemini 2.5 Flash** | 5 req/min | 250K tokens/min | 100/jour |
-| **Gemini 2.5 Flash Preview** | 5 req/min | 250K tokens/min | 25/jour |
-
-> RPM = requêtes par minute · TPM = tokens par minute · RPD = requêtes par jour
-
-**Tu peux consulter ta consommation en temps réel** sur [Google AI Studio → Mes clés API → Voir les métriques](https://aistudio.google.com/).  
-Tu y trouves un tableau de bord complet : historique d'utilisation, pics de consommation, et suivi des limites par modèle.
-
-### Rotation automatique des modèles
-
-Le script tourne entre autant de modèles que tu en configures dans `.env` :
-
-```env
-GEMINI_ROTATION_MODELS=gemini-2.5-flash-lite,gemini-2.5-flash,gemini-2.5-flash-preview-05-20
-GEMINI_DAILY_LIMIT_PER_MODEL=20
-```
-
-**Tu veux ajouter un modèle ?** Il suffit de l'ajouter dans la liste, séparé par une virgule.  
-Le système l'intègre automatiquement dans la rotation sans aucune modification de code.
-
-Exemple avec 4 modèles configurés :
-
-```
-CV 1 → gemini-2.5-flash-lite
-CV 2 → gemini-2.5-flash
-CV 3 → gemini-2.5-flash-preview-05-20
-CV 4 → gemini-3-flash  ← nouveau modèle ajouté
-CV 5 → gemini-2.5-flash-lite  (cycle repart)
-```
-
-### Optimisation des tokens
-
-Le script est conçu pour consommer le **minimum de tokens possible** :
-
-- **1 seul appel Gemini par CV** — tout le contenu (expériences + leadership + bullets) est envoyé en une fois en JSON structuré, pas bullet par bullet
-- **Prompt compact** — les instructions sont courtes et précises, sans blabla superflu
-- **Fallback immédiat** — si Gemini échoue ou renvoie un JSON invalide, le script n'insiste pas et utilise les bullets originaux. Zéro retry, zéro appel supplémentaire
-- **Limite locale configurable** — `GEMINI_DAILY_LIMIT_PER_MODEL=20` agit côté script avant même d'appeler l'API, pour ne jamais dépasser tes quotas gratuits
-
-### Tu préfères une autre API ?
-
-Aucun problème. Il suffit de remplacer la fonction `ask_gemini()` dans [src/llm/gemini_client.py](src/llm/gemini_client.py) par n'importe quel autre client LLM :
-
-```python
-# OpenAI
-from openai import OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
-return response.choices[0].message.content
-
-# Mistral
-# Anthropic Claude
-# Ollama (100% local, gratuit, aucune limite)
-```
-
-Le reste du code (`cv_enhancer.py`, `generate_cv.py`) ne change pas.
-
----
-
-## Personnaliser le template CV
-
-Le script injecte des données dans un fichier Word (`templates/base_cv.docx`) via des **placeholders** — des balises entre doubles crochets que Word ne voit pas comme du code, mais que le script reconnaît et remplace.
-
-### Placeholders standards
-
-| Placeholder | Contenu injecté |
-|---|---|
-| `[[EXP_1_COMPANY]]` | Entreprise — expérience 1 |
-| `[[EXP_1_POSITION_TITLE]]` | Poste — expérience 1 |
-| `[[EXP_1_LOCATION]]` | Lieu — expérience 1 |
-| `[[EXP_1_DATES]]` | Dates — expérience 1 |
-| `[[EXP_1_BULLETS]]` | Bullets — expérience 1 *(bloc multi-lignes)* |
-| `[[EXP_2_COMPANY]]` | Entreprise — expérience 2 |
-| `[[EXP_2_POSITION_TITLE]]` | Poste — expérience 2 |
-| `[[EXP_2_LOCATION]]` | Lieu — expérience 2 |
-| `[[EXP_2_DATES]]` | Dates — expérience 2 |
-| `[[EXP_2_BULLETS]]` | Bullets — expérience 2 *(bloc multi-lignes)* |
-| `[[LEAD_1_ORG]]` | Organisation — leadership |
-| `[[LEAD_1_ROLE]]` | Rôle — leadership |
-| `[[LEAD_1_LOCATION]]` | Lieu — leadership |
-| `[[LEAD_1_DATES]]` | Dates — leadership |
-| `[[LEAD_1_BULLETS]]` | Bullets — leadership *(bloc multi-lignes)* |
-| `[[TECHNICAL_SKILLS]]` | Compétences techniques |
-| `[[CERTIFICATION_ENTRIES]]` | Certifications |
-
-### Ajouter tes propres sections
-
-Tu peux **remplacer n'importe quelle section** par un placeholder personnalisé et alimenter sa valeur dans `build_replacements()` dans `src/generate_cv.py`.
-
-**Exemple concret** : remplacer la section Leadership par un accroche personnalisée selon l'offre
-
-Dans ton `.docx`, tu écris à l'endroit voulu :
-
-```
-[[RESUME_ANNONCE]]
-```
-
-Dans `generate_cv.py`, tu ajoutes dans `build_replacements()` :
-
-```python
-"[[RESUME_ANNONCE]]": "Passionné par les opérations supply chain internationales, "
-                      "je candidate chez {company} pour contribuer à {job_title}."
-```
-
-Ou tu génères ce texte dynamiquement avec Gemini avant de construire les remplacements.  
-Le principe est le même pour n'importe quelle section : **une balise dans le Word = une clé dans le dict Python**.
-
----
 
 ## Installation
 
 ```bash
 git clone https://github.com/Insular2895/ResumeForge.git
-cd CV
-python3 -m venv .venv
-source .venv/bin/activate      # Windows : .venv\Scripts\activate
+cd ResumeForge
+python3 -m venv src/.venv
+source src/.venv/bin/activate
 pip install -r requirements.txt
 ```
 
----
-
-## Configuration
-
-### 1 — Fichier `.env`
+Copier l'exemple d'environnement :
 
 ```bash
 cp .env.example .env
 ```
 
----
+Puis remplir `.env` localement. Ce fichier est ignoré par Git.
 
-### 2 — Clé API Gemini *(optionnel)*
+## Configuration Privée
 
-> Mets `USE_GEMINI=false` dans `.env` pour désactiver complètement.
+Fichiers privés à créer localement :
 
-1. Aller sur **[Google AI Studio](https://aistudio.google.com/app/apikey)** → Créer une clé API (gratuit)
-2. Copier la clé dans `.env` :
-
-```env
-USE_GEMINI=true
-GEMINI_API_KEY=AIzaSy...
-```
-
-Le système tourne automatiquement entre 3 modèles (60 CV optimisés/jour par défaut).
-
----
-
-### 3 — Google Sheets + Service Account *(optionnel)*
-
-> Utilise `python3 -m src.generate_cv` à la place de `run.py` pour passer cette étape.
-
-<details>
-<summary><b>Voir les étapes détaillées</b></summary>
-
-#### 3a — Créer le Google Sheet
-
-1. Aller sur [Google Sheets](https://sheets.google.com) → créer un nouveau fichier
-2. Récupérer l'**ID du Sheet** dans l'URL :
-
-```
-https://docs.google.com/spreadsheets/d/ ➜ CECI_EST_TON_SHEET_ID ➜ /edit
-```
-
-3. Coller l'ID dans `.env` :
-
-```env
-GOOGLE_SHEET_ID=1ABC...XYZ
-GOOGLE_SHEET_TAB=applications
-```
-
-#### 3b — Créer un Service Account Google
-
-1. Aller sur **[Google Cloud Console](https://console.cloud.google.com/)**
-2. Créer un projet (ou en sélectionner un existant)
-3. **APIs & Services → Bibliothèque** → Activer :
-   - ✅ `Google Sheets API`
-   - ✅ `Google Drive API`
-4. **APIs & Services → Identifiants → Créer des identifiants → Compte de service**
-5. Donner un nom (ex. `cv-tailor`) → Créer
-6. Cliquer sur le compte créé → **Clés → Ajouter une clé → JSON**
-7. Un fichier JSON est téléchargé automatiquement
-
-#### 3c — Placer le fichier JSON
-
-```bash
-mkdir -p credentials
-mv ~/Downloads/ton-fichier.json credentials/service_account.json
-```
-
-#### 3d — Partager le Sheet avec le Service Account
-
-1. Ouvrir `credentials/service_account.json`
-2. Copier la valeur du champ `"client_email"` → ex. `cv-tailor@projet.iam.gserviceaccount.com`
-3. Dans Google Sheets → **Partager** → coller cet email → **Éditeur** → **Envoyer**
-
-</details>
-
----
-
-### 4 — Master Profile Excel
-
-```bash
-cp data/reference/master_profile_example.xlsx data/reference/master_profile.xlsx
-```
-
-<details>
-<summary><b>Voir la structure complète des feuilles</b></summary>
-
-#### Feuille `experiences`
-
-| Colonne | Description |
-|---|---|
-| `experience_id` | Identifiant unique (ex. `EXP_001`) |
-| `company` | Nom de l'entreprise |
-| `location` | Ville / pays |
-| `job_title` | Intitulé du poste |
-| `date_start` | Début (ex. `2023-09`) |
-| `date_end` | Fin (ex. `2025-06` ou `Présent`) |
-| `industry_tags` | Secteurs (ex. `Supply Chain, Import/Export`) |
-| `job_family_tags` | Familles métier (ex. `ADV, Logistics`) |
-| `truth_bullet_1` … `truth_bullet_5` | Bullets factuels de l'expérience |
-| `tools_verified` | Outils maîtrisés (ex. `SAP EWM, Excel`) |
-| `skills_verified` | Compétences prouvées |
-| `skills_transferable` | Compétences transférables |
-| `skills_exposed` | Compétences exposées |
-| `kpis_verified` | KPIs réels (ex. `réduction 20% des délais`) |
-| `cv_priority` | Priorité d'affichage (`1` = prioritaire) |
-
-#### Feuille `leadership`
-
-| Colonne | Description |
-|---|---|
-| `Organisation` | Nom de l'association / projet |
-| `Role` | Rôle occupé |
-| `City` | Ville |
-| `Year` | Année ou période |
-| `truth_bullet_1` … `truth_bullet_5` | Bullets factuels |
-
-#### Feuille `certifications`
-
-| Colonne | Description |
-|---|---|
-| `cert_name` | Nom de la certification |
-| `issuer` | Organisme émetteur |
-| `date_obtained` | Date d'obtention |
-| `related_families` | Familles métier associées |
-| `status` | `obtained` ou `in progress` |
-
-#### Feuille `skills`
-
-| Colonne | Description |
-|---|---|
-| `skill_name` | Nom de la compétence |
-| `skill_family` | Famille (`supply`, `data`, `marketing`) |
-| `type` | `tool`, `method` ou `soft` |
-
-</details>
-
----
-
-### 5 — Template CV DOCX
-
-```bash
-cp templates/base_cv_example.docx templates/base_cv.docx
-```
-
-Personnalise `base_cv.docx` dans Word (nom, contact, couleurs, polices...) en utilisant les placeholders listés dans la section [Personnaliser le template CV](#personnaliser-le-template-cv).
-
----
-
-### 6 — Job Description
-
-```
-data/input/job_description.txt
-```
-
-Coller l'offre d'emploi en texte brut.
-
----
-
-## Lancer la génération
-
-```bash
-python3 run.py
-```
-
-> Génère le CV **et** envoie la ligne dans Google Sheets.
-
-```bash
-python3 -m src.generate_cv
-```
-
-> Génère le CV uniquement (sans Google Sheets).
-
-Le CV est créé dans `data/output/` :
-
-```
-CV_Prenom_Nom_Entreprise_Poste_20260427_143022.docx
-```
-
----
-
-## Structure du projet
-
-```
-cv-tailor/
-├── assets/
-│   └── cv_output_example.png            ← exemple de sortie
-├── data/
-│   ├── input/
-│   │   └── job_description.txt          ← ton offre (non versionné)
-│   ├── reference/
-│   │   ├── master_profile_example.xlsx  ← modèle vide (versionné)
-│   │   └── master_profile.xlsx          ← ton fichier réel (non versionné)
-│   └── output/                          ← CV générés (non versionné)
-├── templates/
-│   ├── base_cv_example.docx             ← template exemple (versionné)
-│   └── base_cv.docx                     ← ton template réel (non versionné)
-├── credentials/
-│   └── service_account.json             ← clé Google (non versionné)
-├── src/
-│   ├── generate_cv.py                   ← moteur principal
-│   ├── llm/
-│   │   ├── gemini_client.py             ← client Gemini + rotation modèles
-│   │   └── cv_enhancer.py              ← optimisation bullets
-│   ├── render/
-│   │   └── docx_template.py             ← injection placeholders DOCX
-│   └── tracker/
-│       └── google_sheets_tracker.py     ← suivi Google Sheets
-├── run.py                               ← commande unique
-├── .env.example                         ← variables d'environnement (modèle)
-└── requirements.txt
-```
-
----
-
-## Sécurité
-
-Ces fichiers ne doivent **jamais** être pushés sur GitHub :
-
-```
+```text
 .env
-credentials/service_account.json
-data/reference/master_profile.xlsx
 data/input/job_description.txt
-data/output/
+data/reference/master_profile.xlsx
+templates/base_cv.docx
+templates/base_cover_letter.docx
+credentials/
+```
+
+Ces fichiers ne doivent pas être commit.
+
+### Clés API
+
+`.env.example` documente les variables sans secrets :
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_LETTER_API_KEY=your_gemini_letter_api_key_here
+GEMINI_DOMAIN_API_KEY=your_gemini_domain_research_api_key_here
+```
+
+Rôles recommandés :
+
+- `GEMINI_API_KEY` : génération et optimisation CV ;
+- `GEMINI_LETTER_API_KEY` : génération LM ;
+- `GEMINI_DOMAIN_API_KEY` : enrichissement manuel de la base métier.
+
+Si `GEMINI_LETTER_API_KEY` est absente, le pipeline génère le CV, le Markdown et `application_context.json`, puis écrit un rapport `skipped` sans générer de LM.
+
+## Modèles Gemini
+
+Configuration recommandée :
+
+```env
+GEMINI_ROTATION_MODELS=gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash
+GEMINI_DAILY_LIMIT_PER_MODEL=20
+
+GEMINI_LETTER_MODEL=gemini-3.1-flash-lite
+GEMINI_LETTER_FALLBACK_MODELS=gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash
+
+GEMINI_DOMAIN_MODEL=gemini-3.1-flash-lite
+```
+
+Gemini 3.1 Flash Lite est utilisé en priorité pour la LM et la base métier, avec fallback automatique si le modèle est indisponible ou en quota.
+
+Avec la limite locale `GEMINI_DAILY_LIMIT_PER_MODEL=20`, le débit CV est volontairement conservateur. Tu peux augmenter cette limite si tes quotas Google AI Studio le permettent.
+
+## Templates CV Et LM
+
+### CV
+
+Template privé :
+
+```text
 templates/base_cv.docx
 ```
 
-Vérifier avant un push :
+Il contient les placeholders CV utilisés par `run.py` et `run_application.py`.
 
-```bash
-git ls-files | grep -E "(\.env$|service_account|master_profile\.xlsx|job_description|base_cv\.docx)"
+Le CV généré est rendu en Arial.
+
+### Lettre de motivation
+
+Template versionné :
+
+```text
+templates/base_cover_letter_example.docx
 ```
 
-✅ Cette commande ne doit rien retourner.
+Template privé de production :
+
+```bash
+cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
+```
+
+Ouvre ensuite `templates/base_cover_letter.docx` dans Word ou LibreOffice, adapte la mise en page et garde les placeholders exactement identiques.
+
+Placeholders principaux :
+
+```text
+[[LM_COMPANY]]
+[[LM_COMPANY_ADDRESS_LINE_1]]
+[[LM_COMPANY_POSTAL_CITY]]
+[[LM_JOB_TITLE]]
+[[LM_DATE]]
+[[LM_FINAL_LETTER]]
+[[LM_SIGNATURE]]
+```
+
+La LM générée est rendue en Arial.
+
+## Références LM
+
+Ces fichiers guident Gemini. Ils ne sont pas des sorties finales :
+
+```text
+templates/LM_instructions.md
+templates/LM_template.md
+templates/LM_demo_validee.md
+```
+
+Leur rôle :
+
+- `LM_instructions.md` : règles de génération, interdictions, ATS, méthode ABC/XYZ, angle apprentissage ;
+- `LM_template.md` : structure logique attendue ;
+- `LM_demo_validee.md` : démonstration annotée du style cible.
+
+Les annotations et placeholders de raisonnement ne doivent jamais apparaître dans la lettre finale.
+
+## Base Métier
+
+ResumeForge charge une base métier courte selon le domaine détecté :
+
+```text
+templates/domain_vocabulary/
+├── supply_chain.json
+├── retail_operations.json
+└── _cross_domain_terms.json
+```
+
+Objectif : réutiliser les bons termes transversaux sans brûler trop de tokens.
+
+Exemples :
+
+- supply chain : Incoterms, FIFO/FEFO, packing list, airway bill, bill of lading, cut-off, douane ;
+- retail operations : ADV, précommandes, royalties, litiges, marges, réseau de boutiques, KPI service client ;
+- transverse : reporting, coordination, fiabilité des données, parties prenantes, amélioration de process.
+
+Pour enrichir manuellement une base depuis une nouvelle offre :
+
+```bash
+python scripts/enrich_domain_vocabulary.py --domain retail_operations
+```
+
+Cette commande utilise `GEMINI_DOMAIN_API_KEY` et ne consomme pas la clé CV ni la clé LM.
+
+## Recherche Entreprise
+
+Le pipeline peut construire un profil entreprise avec cache JSON local :
+
+```text
+data/company_profiles/
+```
+
+Les faits entreprise retenus sont injectés dans `application_context.json`. La LM peut utiliser au maximum 1 à 3 faits autorisés.
+
+Si la recherche entreprise est indisponible, le pipeline reste sobre et ne force pas de faits non vérifiés.
+
+## Validation
+
+Le rapport de validation est écrit ici :
+
+```text
+data/output/cover_letters/LM_...._validation.json
+```
+
+Statuts possibles :
+
+- `success` : LM validée, DOCX généré ;
+- `failed` : LM rejetée, aucun DOCX final exporté ;
+- `skipped` : génération LM sautée, souvent à cause d'une clé absente.
+
+En cas d'échec, ResumeForge écrit aussi :
+
+```text
+data/output/cover_letters/LM_FAILED_....txt
+```
+
+## Tracker Candidatures
+
+Le tracker est mis à jour avec :
+
+- timestamp ;
+- entreprise ;
+- poste ;
+- famille métier ;
+- chemins CV DOCX et CV Markdown ;
+- chemin LM DOCX si disponible ;
+- statut de validation ;
+- statut recherche entreprise ;
+- nombre de faits entreprise retenus.
+
+Il n'y a pas de champ `lm_md_path`.
+
+Si Google Sheets est configuré, la logique existante est réutilisée. Sinon, le pipeline écrit un warning sans casser la génération.
+
+## Organisation
+
+```text
+run.py                         # CV seul, conservé
+run_application.py             # pipeline complet
+src/application/               # contexte, tracking, markdown CV, recherche, base métier
+src/letter/                    # prompt LM, génération, validation, rendu DOCX
+src/render/                    # rendu Word
+templates/                     # templates et références Gemini
+docs/                          # specs, plans, guide d'utilisation
+tests/                         # tests sans clé API obligatoire
+```
+
+Guide plus détaillé :
+
+```text
+docs/USAGE.md
+```
+
+## Sécurité Git
+
+Avant de commit :
+
+```bash
+git status --short
+```
+
+À ne jamais commit :
+
+```text
+.env
+data/input/job_description.txt
+data/reference/master_profile.xlsx
+templates/base_cv.docx
+templates/base_cover_letter.docx
+data/output/
+data/company_profiles/
+credentials/
+```
+
+Les exemples versionnés restent publics :
+
+```text
+.env.example
+templates/base_cover_letter_example.docx
+templates/LM_instructions.md
+templates/LM_template.md
+templates/LM_demo_validee.md
+templates/domain_vocabulary/*.json
+```
+
+## Tests
+
+```bash
+python -m pytest
+```
+
+Les tests ne nécessitent pas de clé Gemini.
+
+## Licence
+
+Usage personnel uniquement. Voir [LICENSE](LICENSE).

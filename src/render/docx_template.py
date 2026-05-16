@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import re
 
 from docx import Document
 from docx.text.paragraph import Paragraph
@@ -8,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 
 
-DEFAULT_FONT_NAME = "Calibri"
+DEFAULT_FONT_NAME = "Arial"
 
 
 class DocxTemplateRenderer:
@@ -54,11 +55,22 @@ class DocxTemplateRenderer:
             "[[CERTIFICATION_ENTRIES]]",
         }
 
+        paragraph_placeholders = {
+            "[[LM_FINAL_LETTER]]",
+        }
+
         for placeholder in bullet_placeholders:
             if placeholder in paragraph_text:
                 bullets_text = replacements.get(placeholder, "")
                 bullets = self._split_bullets(bullets_text)
                 self._replace_bullet_placeholder_with_paragraphs(paragraph, bullets)
+                return
+
+        for placeholder in paragraph_placeholders:
+            if placeholder in paragraph_text:
+                paragraph_text = replacements.get(placeholder, "")
+                paragraphs = self._split_text_paragraphs(paragraph_text)
+                self._replace_text_placeholder_with_paragraphs(paragraph, paragraphs)
                 return
 
         self._replace_inline_placeholders(paragraph, replacements)
@@ -145,6 +157,33 @@ class DocxTemplateRenderer:
                 bullets.append(line)
 
         return bullets
+
+    def _split_text_paragraphs(self, text):
+        if text is None:
+            return []
+
+        raw = str(text).replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not raw:
+            return []
+
+        parts = re.split(r"\n\s*\n+", raw)
+        return [re.sub(r"\s*\n\s*", " ", part).strip() for part in parts if part.strip()]
+
+    def _replace_text_placeholder_with_paragraphs(self, paragraph, paragraphs):
+        if not paragraphs:
+            self._remove_paragraph(paragraph)
+            return
+
+        self._set_paragraph_text_preserve_style(paragraph, paragraphs[0])
+        paragraph.paragraph_format.space_after = Pt(8)
+
+        previous = paragraph
+        for text in paragraphs[1:]:
+            new_paragraph = self._insert_paragraph_after(previous)
+            self._copy_paragraph_format(paragraph, new_paragraph)
+            new_paragraph.paragraph_format.space_after = Pt(8)
+            self._set_paragraph_text_preserve_style(new_paragraph, text)
+            previous = new_paragraph
 
     def _set_label_line(self, paragraph, text, label):
         """

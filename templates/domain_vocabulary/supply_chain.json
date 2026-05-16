@@ -1,0 +1,100 @@
+{
+  "domain": "supply_chain",
+  "aliases": [
+    "ADV",
+    "import/export",
+    "supply chain",
+    "logistique internationale",
+    "operations",
+    "procurement",
+    "warehouse",
+    "transport"
+  ],
+  "waves": {
+    "1_domain_core": [
+      "ADV",
+      "import/export",
+      "supply chain",
+      "logistique internationale",
+      "coordination logistique",
+      "commerce international",
+      "operations internationales"
+    ],
+    "2_processes": [
+      "prise de commande",
+      "traitement des commandes",
+      "suivi de commande",
+      "preparation d'expedition",
+      "coordination transport",
+      "gestion des stocks",
+      "approvisionnement",
+      "sourcing",
+      "facturation",
+      "paiement international",
+      "controle qualite",
+      "relation client",
+      "relation transporteur",
+      "coordination interservices"
+    ],
+    "3_documents_tools_constraints": [
+      "SAP",
+      "SAP EWM",
+      "SAP S/4HANA",
+      "ERP",
+      "Incoterms",
+      "FCA",
+      "CPT",
+      "DAP",
+      "commercial invoice",
+      "packing list",
+      "bill of lading",
+      "airway bill",
+      "lettre de credit",
+      "documentary collection",
+      "documents douaniers",
+      "delivery calendar",
+      "SLA",
+      "FEFO",
+      "FIFO",
+      "RPA",
+      "Rapid Response"
+    ],
+    "4_operational_risks": [
+      "retard transporteur",
+      "cut-off transport",
+      "erreur documentaire",
+      "blocage douane",
+      "ecart de stock",
+      "rupture de stock",
+      "non-conformite",
+      "litige client",
+      "retard de paiement",
+      "ecart entre commande et livraison",
+      "contrainte de delai",
+      "continuite de marche",
+      "qualite de service"
+    ]
+  },
+  "safe_formulations": [
+    "m'a expose aux enjeux concrets de...",
+    "m'a permis de developper des reflexes sur...",
+    "j'ai pu travailler sur...",
+    "je comprends que ce type de poste demande une attention particuliere a...",
+    "cette experience m'a donne une base operationnelle sur..."
+  ],
+  "forbidden_overclaims": [
+    "je maitrise les procedures douanieres",
+    "expert en transport maritime",
+    "expert en transport aerien",
+    "specialiste conformite pharmaceutique",
+    "expert douane",
+    "maitrise complete des lettres de credit"
+  ],
+  "usage_rules": [
+    "Un terme present dans le CV Markdown peut etre relie directement au candidat.",
+    "Un terme present dans l'offre mais absent du CV doit etre formule comme enjeu du poste.",
+    "Un terme implicite au domaine mais absent du CV et de l'offre doit etre utilise avec prudence comme comprehension generale.",
+    "Les documents precis comme bill of lading ou airway bill ne doivent pas etre presentes comme pratiques par le candidat sauf preuve dans le CV Markdown."
+  ]
+}
+
