@@ -53,6 +53,60 @@ job_description.txt  +  master_profile.xlsx  →  CV DOCX personnalisé  →  Go
 
 ---
 
+## Pipeline candidature complet
+
+ResumeForge peut aussi générer un dossier de candidature complet :
+
+```bash
+python run_application.py
+```
+
+Le flux produit :
+
+```text
+data/output/CV_....docx
+data/output/CV_....md
+data/output/application_context.json
+data/output/cover_letters/LM_....docx
+data/output/cover_letters/LM_...._validation.json
+```
+
+La lettre de motivation finale est exportée uniquement en DOCX. Il n'y a pas de sortie finale `LM_....md`.
+
+Le CV Markdown est généré depuis le CV personnalisé final et sert uniquement de source lisible pour Gemini. La LM ne lit jamais directement `master_profile.xlsx` : elle utilise seulement le CV Markdown final, `application_context.json`, l'offre et les faits entreprise autorisés.
+
+Les fichiers suivants sont des références de génération pour Gemini, pas des sorties finales :
+
+- `templates/LM_template.md`
+- `templates/LM_demo_validee.md`
+- `templates/LM_instructions.md`
+
+Avant d'exporter la LM DOCX, ResumeForge écrit un rapport de validation JSON et bloque le rendu si la lettre contient un élément inventé : chiffre, expérience, outil, formation, projet, compétence, expertise ou fait entreprise non autorisé. Le tracker candidatures est ensuite mis à jour avec le statut de validation, le CV DOCX, le CV Markdown et la LM DOCX quand elle existe.
+
+La génération LM utilise une clé dédiée :
+
+```env
+GEMINI_LETTER_API_KEY=your_gemini_letter_api_key_here
+```
+
+Si cette clé est absente, `run_application.py` génère quand même le CV DOCX, le CV Markdown, `application_context.json`, puis écrit un rapport `skipped` sans créer de LM.
+
+Le template versionné est :
+
+```text
+templates/base_cover_letter_example.docx
+```
+
+Le vrai template local, privé et ignoré par Git, est :
+
+```bash
+cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
+```
+
+Ensuite, ouvre `templates/base_cover_letter.docx` dans Word ou LibreOffice, adapte la mise en page, et garde les placeholders exactement identiques.
+
+---
+
 ## Pourquoi Gemini ?
 
 L'API Gemini de Google propose un **niveau gratuit généreux** (sans carte bancaire requise pour démarrer), ce qui en fait le choix évident pour un usage personnel et intensif.
