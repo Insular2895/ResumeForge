@@ -16,12 +16,34 @@ TRACKER_FIELDS = [
     "job_title",
     "job_family",
     "cv_docx_path",
-    "cv_markdown_path",
     "lm_docx_path",
+    "score",
+    "selected_experiences",
+    "selected_certifications",
+    "selected_technical_skills",
     "validation_status",
-    "company_research_status",
-    "selected_company_facts_count",
     "tracker_update_status",
+]
+
+GOOGLE_SHEET_FIELDS = [
+    "created_at",
+    "company",
+    "job_title",
+    "salary",
+    "location",
+    "job_url",
+    "cv_docx",
+    "lm_docx",
+    "job_family",
+    "score",
+    "selected_experiences",
+    "selected_certifications",
+    "selected_technical_skills",
+    "status",
+    "priority",
+    "notes",
+    "updated_at",
+    "timestamp",
 ]
 
 ENV_PATH = BASE_DIR / ".env"
@@ -58,29 +80,107 @@ def _number_to_column_letter(number: int) -> str:
     return result
 
 
+def _safe_str(value) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"none", "nan", "nat"}:
+        return ""
+    return text
+
+
+def _safe_join(value) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, list):
+        cleaned_items = []
+        for item in value:
+            if isinstance(item, dict):
+                company = _safe_str(
+                    item.get("company")
+                    or item.get("organisation")
+                    or item.get("organization")
+                    or item.get("org")
+                )
+                position = _safe_str(
+                    item.get("position_title")
+                    or item.get("position")
+                    or item.get("role")
+                    or item.get("title")
+                )
+                dates = _safe_str(item.get("dates") or item.get("year"))
+                parts = [part for part in [company, position, dates] if part]
+                cleaned_items.append(" - ".join(parts) if parts else _safe_str(item))
+            else:
+                item_text = _safe_str(item)
+                if item_text:
+                    cleaned_items.append(item_text)
+        return " | ".join(item for item in cleaned_items if item)
+
+    if isinstance(value, dict):
+        return _safe_str(value)
+
+    return _safe_str(value)
+
+
+def _calculate_score(report: dict) -> str:
+    if report.get("score") not in {None, ""}:
+        return _safe_str(report.get("score"))
+
+    raw_score = 0.0
+    for experience in report.get("selected_experiences", []) or []:
+        if isinstance(experience, dict):
+            raw_score += float(experience.get("score", 0) or 0)
+
+    for leadership in report.get("selected_leadership", []) or []:
+        if isinstance(leadership, dict):
+            raw_score += float(leadership.get("score", 0) or 0)
+
+    certifications = report.get("selected_certifications", []) or []
+    if isinstance(certifications, list):
+        raw_score += len(certifications) * 25
+
+    skills = report.get("selected_technical_skills", []) or []
+    if isinstance(skills, list):
+        raw_score += len(skills) * 10
+
+    if raw_score <= 0:
+        return ""
+    return _safe_str(round(min((raw_score / 700) * 100, 100), 2))
+
+
+def _ensure_google_sheet_headers(worksheet) -> list[str]:
+    worksheet.update(range_name="A1", values=[GOOGLE_SHEET_FIELDS])
+    if worksheet.col_count > len(GOOGLE_SHEET_FIELDS):
+        worksheet.resize(rows=worksheet.row_count, cols=len(GOOGLE_SHEET_FIELDS))
+    return GOOGLE_SHEET_FIELDS
+
+
 def _tracker_value_for_header(row: dict, header: str) -> str:
     timestamp = row.get("timestamp", "")
     cv_docx_path = row.get("cv_docx_path", "")
     lm_docx_path = row.get("lm_docx_path", "")
     validation_status = row.get("validation_status", "")
 
-    legacy_values = {
+    sheet_values = {
         "created_at": timestamp,
         "updated_at": timestamp,
+        "cv_docx": cv_docx_path,
+        "lm_docx": lm_docx_path,
         "cv_path": cv_docx_path,
         "cv_file": Path(cv_docx_path).name if cv_docx_path else "",
         "mode": "application_pipeline",
         "status": validation_status,
         "notes": f"LM DOCX: {lm_docx_path}" if lm_docx_path else "",
-        "score": "",
-        "selected_experiences": "",
-        "selected_certifications": "",
-        "selected_technical_skills": "",
     }
 
     if header in row:
         return row.get(header, "")
-    return legacy_values.get(header, "")
+    return sheet_values.get(header, "")
 
 
 def _row_values_for_headers(row: dict, headers: list[str]) -> list[str]:
@@ -119,19 +219,7 @@ def _append_row_to_google_sheets(row: dict) -> str | None:
                 cols=len(TRACKER_FIELDS),
             )
 
-        headers = worksheet.row_values(1)
-        if not headers:
-            headers = TRACKER_FIELDS
-            worksheet.update("A1", [headers])
-        else:
-            final_headers = headers.copy()
-            for header in TRACKER_FIELDS:
-                if header not in final_headers:
-                    final_headers.append(header)
-            if final_headers != headers:
-                end_col = _number_to_column_letter(len(final_headers))
-                worksheet.update(f"A1:{end_col}1", [final_headers])
-            headers = final_headers
+        headers = _ensure_google_sheet_headers(worksheet)
 
         worksheet.append_row(
             _row_values_for_headers(row, headers),
@@ -160,11 +248,12 @@ def update_application_tracker(
         "job_title": validation_report.get("job_title", ""),
         "job_family": validation_report.get("job_family", ""),
         "cv_docx_path": validation_report.get("cv_docx_path", ""),
-        "cv_markdown_path": validation_report.get("cv_markdown_path", ""),
         "lm_docx_path": validation_report.get("lm_docx_path") or "",
+        "score": _calculate_score(validation_report),
+        "selected_experiences": _safe_join(validation_report.get("selected_experiences", [])),
+        "selected_certifications": _safe_join(validation_report.get("selected_certifications", [])),
+        "selected_technical_skills": _safe_join(validation_report.get("selected_technical_skills", [])),
         "validation_status": validation_report.get("validation_status", ""),
-        "company_research_status": validation_report.get("company_research_status", ""),
-        "selected_company_facts_count": str(len(validation_report.get("used_company_facts", []))),
         "tracker_update_status": "success",
     }
 

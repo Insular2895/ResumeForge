@@ -112,6 +112,11 @@ def _write_skipped_report(application_context: dict, reason: str, validation_pat
 
 def _update_tracker_safely(validation_report: dict, validation_path: Path) -> dict:
     try:
+        cv_report = _read_json(LAST_RUN_REPORT_PATH) if LAST_RUN_REPORT_PATH.exists() else {}
+        validation_report.setdefault("selected_experiences", cv_report.get("selected_experiences", []))
+        validation_report.setdefault("selected_leadership", cv_report.get("selected_leadership", []))
+        validation_report.setdefault("selected_certifications", cv_report.get("selected_certifications", []))
+        validation_report.setdefault("selected_technical_skills", cv_report.get("selected_technical_skills", []))
         tracker_row = update_application_tracker(validation_report)
         validation_report["tracker_update_status"] = tracker_row.get("tracker_update_status", "success")
         if tracker_row.get("tracker_warning"):
