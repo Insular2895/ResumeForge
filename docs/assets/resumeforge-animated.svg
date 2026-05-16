@@ -1,0 +1,31 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ResumeForge animated logo</title>
+  <desc id="desc">Animated document and forge spark mark for ResumeForge.</desc>
+  <rect width="160" height="160" rx="34" fill="#0D1117"/>
+  <rect x="38" y="24" width="74" height="104" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="4"/>
+  <path d="M91 24v27h21" fill="#E2E8F0"/>
+  <path d="M91 24v27h21" stroke="#CBD5E1" stroke-width="4" stroke-linejoin="round"/>
+  <g stroke="#334155" stroke-width="5" stroke-linecap="round">
+    <path d="M54 58h25"/>
+    <path d="M54 74h42"/>
+    <path d="M54 90h34"/>
+    <path d="M54 106h47"/>
+  </g>
+  <g>
+    <path d="M113 92l20 20" stroke="#FACC15" stroke-width="8" stroke-linecap="round"/>
+    <path d="M127 84l-22 22" stroke="#F97316" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="120" cy="99" r="10" fill="#111827" stroke="#FACC15" stroke-width="5"/>
+    <animateTransform attributeName="transform" type="rotate" values="-7 120 99;7 120 99;-7 120 99" dur="2.4s" repeatCount="indefinite"/>
+  </g>
+  <g fill="#FACC15">
+    <circle cx="31" cy="37" r="4">
+      <animate attributeName="opacity" values="0.2;1;0.2" dur="1.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="128" cy="42" r="3">
+      <animate attributeName="opacity" values="1;0.25;1" dur="1.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="28" cy="121" r="3">
+      <animate attributeName="opacity" values="0.35;1;0.35" dur="1.7s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>
