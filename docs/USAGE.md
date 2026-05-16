@@ -15,22 +15,67 @@ Ces fichiers restent locaux et ne doivent pas être commit.
 
 ## Configuration API
 
-Dans `.env` :
+Le repo fournit uniquement le modèle :
+
+```text
+.env.example
+```
+
+Chaque utilisateur crée son propre fichier privé :
+
+```bash
+cp .env.example .env
+```
+
+Dans `.env`, chacun met ses propres clés Gemini :
 
 ```env
 USE_GEMINI=true
 
-GEMINI_API_KEY=...
+GEMINI_API_KEY=your_gemini_cv_key_here
 GEMINI_ROTATION_MODELS=gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash
 GEMINI_OPTIONAL_MODELS=gemini-2.0-flash
 
-GEMINI_LETTER_API_KEY=...
+GEMINI_LETTER_API_KEY=your_gemini_letter_key_here
 GEMINI_LETTER_MODEL=gemini-3.1-flash-lite
 GEMINI_LETTER_FALLBACK_MODELS=gemini-3-flash-preview,gemini-2.5-flash-lite,gemini-2.5-flash
 
-GEMINI_DOMAIN_API_KEY=...
+GEMINI_DOMAIN_API_KEY=your_gemini_domain_key_here
 GEMINI_DOMAIN_MODEL=gemini-3.1-flash-lite
 AUTO_ENRICH_DOMAIN_VOCABULARY=false
+```
+
+## Configuration Google Sheets
+
+Chaque utilisateur doit connecter son propre tracker Google Sheets.
+
+Dans `.env` :
+
+```env
+GOOGLE_SHEET_ID=your_google_sheet_id_here
+GOOGLE_SHEET_TAB=applications
+```
+
+`GOOGLE_SHEET_ID` correspond à la partie centrale de l'URL :
+
+```text
+https://docs.google.com/spreadsheets/d/<GOOGLE_SHEET_ID>/edit
+```
+
+Puis ajouter localement le service account :
+
+```text
+credentials/service_account.json
+```
+
+Le service account doit être partagé sur le Google Sheet avec un accès éditeur.
+
+Ces fichiers restent privés et ne doivent jamais être commit :
+
+```text
+.env
+credentials/service_account.json
+data/tracker/applications.csv
 ```
 
 ## Template CV
@@ -190,4 +235,3 @@ tracker_update_status
 ```
 
 Il n'y a pas de champ `lm_md_path`.
-

@@ -127,6 +127,56 @@ cp .env.example .env
 
 Puis remplir `.env` localement. Ce fichier est ignoré par Git.
 
+## Configuration Par Utilisateur
+
+Chaque utilisateur du repo doit avoir sa propre configuration locale.
+
+Le repo versionne seulement :
+
+```text
+.env.example
+```
+
+Chaque utilisateur crée ensuite son fichier privé :
+
+```bash
+cp .env.example .env
+```
+
+Puis il remplit ses propres clés et son propre tracker :
+
+```env
+GEMINI_API_KEY=your_gemini_cv_key_here
+GEMINI_LETTER_API_KEY=your_gemini_letter_key_here
+GEMINI_DOMAIN_API_KEY=your_gemini_domain_key_here
+
+GOOGLE_SHEET_ID=your_google_sheet_id_here
+GOOGLE_SHEET_TAB=applications
+```
+
+Pour Google Sheets, chaque utilisateur ajoute aussi son propre service account local :
+
+```text
+credentials/service_account.json
+```
+
+Ce fichier doit avoir accès au Google Sheet indiqué dans `GOOGLE_SHEET_ID`.
+
+À ne jamais commit :
+
+```text
+.env
+credentials/service_account.json
+data/input/job_description.txt
+data/reference/master_profile.xlsx
+templates/base_cv.docx
+templates/base_cover_letter.docx
+data/tracker/applications.csv
+data/output/
+```
+
+En clair : le repo contient le moteur et les exemples, mais chaque personne apporte ses clés Gemini, son Google Sheet, son Excel profil, ses templates Word privés et ses offres d'emploi.
+
 ## Configuration Privée
 
 Fichiers privés à créer localement :
