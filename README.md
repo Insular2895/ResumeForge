@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/resumeforge-animated.svg" alt="ResumeForge" width="520">
-
 # ResumeForge
 
 **Pipeline local pour générer un dossier de candidature ciblé : CV, lettre de motivation, validation et tracker.**
