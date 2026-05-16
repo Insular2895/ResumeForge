@@ -1,3 +1,14 @@
+# Superseded
+
+Superseded by:
+
+- `docs/superpowers/specs/2026-05-16-cv-md-cover-letter-pipeline-design.md`
+- `docs/superpowers/plans/2026-05-16-cv-md-cover-letter-pipeline.md`
+
+Do not use this file as the active implementation plan.
+
+---
+
 # Company Research + LM Pipeline — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

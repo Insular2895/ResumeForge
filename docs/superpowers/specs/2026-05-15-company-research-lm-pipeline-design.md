@@ -1,3 +1,14 @@
+# Superseded
+
+Superseded by:
+
+- `docs/superpowers/specs/2026-05-16-cv-md-cover-letter-pipeline-design.md`
+- `docs/superpowers/plans/2026-05-16-cv-md-cover-letter-pipeline.md`
+
+Do not use this file as the active implementation source of truth.
+
+---
+
 # SPEC — Company Research + LM Pipeline
 
 **Date :** 2026-05-15
