@@ -114,6 +114,8 @@ def _update_tracker_safely(validation_report: dict, validation_path: Path) -> di
     try:
         tracker_row = update_application_tracker(validation_report)
         validation_report["tracker_update_status"] = tracker_row.get("tracker_update_status", "success")
+        if tracker_row.get("tracker_warning"):
+            validation_report.setdefault("warnings", []).append(tracker_row["tracker_warning"])
     except Exception as exc:
         validation_report["tracker_update_status"] = "warning_tracker_unavailable"
         validation_report.setdefault("warnings", []).append(f"tracker_unavailable: {exc}")
