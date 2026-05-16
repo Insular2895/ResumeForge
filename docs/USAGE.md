@@ -202,11 +202,12 @@ Elle affiche seulement les chemins finaux.
 
 ```text
 data/output/CV_....docx
-data/output/CV_....md
 data/output/application_context.json
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
 ```
+
+Le CV Markdown est temporaire : il sert à Gemini pendant le run, puis il est supprimé automatiquement après génération réussie de la LM DOCX.
 
 Il n'y a pas de LM finale Markdown.
 
@@ -224,14 +225,18 @@ Champs principaux :
 timestamp
 company
 job_title
+salary
+location
+job_url
 job_family
 cv_docx_path
-cv_markdown_path
 lm_docx_path
+score
+selected_experiences
+selected_certifications
+selected_technical_skills
 validation_status
-company_research_status
-selected_company_facts_count
 tracker_update_status
 ```
 
-Il n'y a pas de champ `lm_md_path`.
+Il n'y a pas de champ `lm_md_path` ni `cv_markdown_path` dans le tracker.

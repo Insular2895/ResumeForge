@@ -149,11 +149,23 @@ def _run_generate_cv(quiet: bool) -> None:
         generate_cv()
 
 
+def _cleanup_success_markdown(cv_markdown_path: Path, validation_report: dict) -> None:
+    if not cv_markdown_path.exists():
+        validation_report["cv_markdown_cleanup"] = "already_absent"
+        return
+
+    cv_markdown_path.unlink()
+    validation_report["cv_markdown_cleanup"] = "deleted_after_lm_docx"
+
+
 def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_path: Path) -> None:
     print("Pipeline candidature terminé.")
     print(f"Statut validation : {validation_report.get('validation_status')}")
     print(f"CV DOCX : {validation_report.get('cv_docx_path')}")
-    print(f"CV Markdown : {cv_markdown_path}")
+    if cv_markdown_path.exists():
+        print(f"CV Markdown temporaire : {cv_markdown_path}")
+    elif validation_report.get("cv_markdown_cleanup"):
+        print(f"CV Markdown temporaire : supprimé ({validation_report.get('cv_markdown_cleanup')})")
     print(f"application_context.json : {APPLICATION_CONTEXT_PATH}")
     if validation_report.get("lm_docx_path"):
         print(f"LM DOCX : {validation_report.get('lm_docx_path')}")
@@ -304,6 +316,7 @@ def main(quiet: bool = False) -> None:
 
     render_letter_docx(application_context, letter_result["final_letter"], lm_docx_path)
     validation_report["lm_docx_path"] = str(lm_docx_path)
+    _cleanup_success_markdown(cv_markdown_path, validation_report)
     _write_json(validation_path, validation_report)
     _update_tracker_safely(validation_report, validation_path)
 

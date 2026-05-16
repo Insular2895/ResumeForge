@@ -10,11 +10,12 @@ Sorties :
 
 ```text
 data/output/CV_....docx
-data/output/CV_....md
 data/output/application_context.json
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
 ```
+
+Le CV Markdown est temporaire : il est supprimé automatiquement après génération réussie de la LM DOCX.
 
 ## 2. Lancer le pipeline complet avec logs détaillés
 

@@ -32,7 +32,7 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 | Fonction | Rôle |
 |---|---|
 | CV ciblé | Sélectionne les expériences et adapte les bullets à l'offre |
-| CV Markdown | Produit une source propre pour Gemini, dérivée du CV final |
+| CV Markdown temporaire | Produit une source propre pour Gemini, puis la supprime après LM DOCX réussie |
 | Lettre DOCX | Génère uniquement une LM finale Word, sans export Markdown |
 | Validation | Bloque la LM si elle invente un chiffre, un outil, une expérience ou un fait entreprise |
 | Base métier | Réutilise les termes précis par domaine sans alourdir le prompt |
@@ -52,14 +52,13 @@ Sorties attendues :
 ```text
 data/output/
 ├── CV_....docx
-├── CV_....md
 ├── application_context.json
 └── cover_letters/
     ├── LM_....docx
     └── LM_...._validation.json
 ```
 
-La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
+Le CV Markdown est un fichier temporaire interne pour Gemini : il est généré, utilisé pour la LM, puis supprimé dès que la LM DOCX est créée. La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
 
 ## Logique
 
@@ -67,9 +66,10 @@ La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne 
 offre d'emploi
   + profil Excel privé
   -> CV DOCX recruteur
-  -> CV Markdown pour Gemini
+  -> CV Markdown temporaire pour Gemini
   -> application_context.json
   -> LM DOCX finale
+  -> suppression du CV Markdown temporaire si succès
   -> validation JSON
   -> tracker candidatures
 ```
@@ -78,7 +78,7 @@ La lettre de motivation ne lit jamais directement `master_profile.xlsx`.
 
 Elle utilise uniquement :
 
-- le CV Markdown final ;
+- le CV Markdown temporaire dérivé du CV final ;
 - l'offre d'emploi ;
 - `application_context.json` ;
 - les faits entreprise autorisés ;
@@ -357,7 +357,7 @@ Le tracker est mis à jour avec :
 - entreprise ;
 - poste ;
 - famille métier ;
-- chemins CV DOCX et CV Markdown ;
+- chemin CV DOCX ;
 - chemin LM DOCX si disponible ;
 - statut de validation ;
 - statut recherche entreprise ;
