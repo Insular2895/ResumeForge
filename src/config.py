@@ -17,6 +17,7 @@ DATA_DIR = BASE_DIR / "data"
 REFERENCE_DIR = DATA_DIR / "reference"
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
+CV_OUTPUT_DIR = OUTPUT_DIR / "cv"
 COVER_LETTERS_DIR = OUTPUT_DIR / "cover_letters"
 COMPANY_PROFILES_DIR = DATA_DIR / "company_profiles"
 TRACKER_DIR = DATA_DIR / "tracker"
@@ -75,6 +76,7 @@ def ensure_project_directories():
         REFERENCE_DIR,
         INPUT_DIR,
         OUTPUT_DIR,
+        CV_OUTPUT_DIR,
         COVER_LETTERS_DIR,
         COMPANY_PROFILES_DIR,
         TRACKER_DIR,

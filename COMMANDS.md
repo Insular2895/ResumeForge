@@ -9,8 +9,7 @@ src/.venv/bin/python run_application.py --quiet
 Sorties :
 
 ```text
-data/output/CV_....docx
-data/output/application_context.json
+data/output/cv/CV_....docx
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
 ```
@@ -76,4 +75,4 @@ data/tracker/applications.csv
 find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec rm -rf {} +
 ```
 
-Les dossiers générés `data/output/` et `data/company_profiles/` sont masqués dans VS Code par `.vscode/settings.json`.
+Les JSON techniques de `data/output/` et le cache `data/company_profiles/` sont masqués dans VS Code par `.vscode/settings.json`.

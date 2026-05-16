@@ -51,12 +51,14 @@ Sorties attendues :
 
 ```text
 data/output/
-├── CV_....docx
-├── application_context.json
+├── cv/
+│   └── CV_....docx
 └── cover_letters/
     ├── LM_....docx
     └── LM_...._validation.json
 ```
+
+Les fichiers techniques du run restent dans `data/output/`, mais ils sont masqués dans VS Code pour garder l'explorateur lisible.
 
 Le CV Markdown est un fichier temporaire interne pour Gemini : il est généré, utilisé pour la LM, puis supprimé dès que la LM DOCX est créée. La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
 

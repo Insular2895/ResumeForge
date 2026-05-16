@@ -19,6 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 MASTER_PROFILE_PATH = ROOT_DIR / "data" / "reference" / "master_profile.xlsx"
 BASE_CV_TEMPLATE_PATH = ROOT_DIR / "templates" / "base_cv.docx"
 OUTPUT_DIR = ROOT_DIR / "data" / "output"
+CV_OUTPUT_DIR = OUTPUT_DIR / "cv"
 
 POSSIBLE_JOB_PATHS = [
     ROOT_DIR / "data" / "input" / "job_description.txt",
@@ -1646,9 +1647,10 @@ def main():
     print("\nConstruction du CV...")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    CV_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     output_filename = build_output_filename(parsed_job)
-    output_path = OUTPUT_DIR / output_filename
+    output_path = CV_OUTPUT_DIR / output_filename
 
     renderer = DocxTemplateRenderer(BASE_CV_TEMPLATE_PATH)
     renderer.render(replacements, output_path)

@@ -201,8 +201,7 @@ Elle affiche seulement les chemins finaux.
 ## Sorties
 
 ```text
-data/output/CV_....docx
-data/output/application_context.json
+data/output/cv/CV_....docx
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
 ```
