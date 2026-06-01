@@ -21,6 +21,7 @@ from src.application.company_research import (
     slugify,
 )
 from src.application.cv_markdown_exporter import export_cv_markdown
+from src.application.output_pack import create_application_pack
 from src.config import (
     APPLICATION_CONTEXT_PATH,
     BASE_COVER_LETTER_PATH,
@@ -169,6 +170,8 @@ def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_p
     print(f"application_context.json : {APPLICATION_CONTEXT_PATH}")
     if validation_report.get("lm_docx_path"):
         print(f"LM DOCX : {validation_report.get('lm_docx_path')}")
+    if validation_report.get("application_pack_path"):
+        print(f"Pack candidature : {validation_report.get('application_pack_path')}")
     if validation_report.get("failed_output_path"):
         print(f"LM failed txt : {validation_report.get('failed_output_path')}")
     print(f"Validation JSON : {validation_path}")
@@ -316,6 +319,18 @@ def main(quiet: bool = False) -> None:
 
     render_letter_docx(application_context, letter_result["final_letter"], lm_docx_path)
     validation_report["lm_docx_path"] = str(lm_docx_path)
+    pack_path = create_application_pack(
+        company=company_name,
+        job_title=parsed_job.get("job_title", "Poste cible"),
+        cv_path=cv_docx_path,
+        cv_markdown=cv_markdown,
+        lm_docx_path=lm_docx_path,
+        final_letter=letter_result["final_letter"],
+        validation_path=validation_path,
+        mode_label="CV_LM",
+        timestamp=timestamp,
+    )
+    validation_report["application_pack_path"] = str(pack_path)
     _cleanup_success_markdown(cv_markdown_path, validation_report)
     _write_json(validation_path, validation_report)
     _update_tracker_safely(validation_report, validation_path)

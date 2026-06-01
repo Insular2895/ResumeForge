@@ -1,40 +1,65 @@
 # ResumeForge - Commandes prêtes
 
-## 1. Lancer le pipeline complet sans bruit
+## 1. Lancer le menu terminal guidé
+
+```bash
+src/.venv/bin/python run_menu.py
+```
+
+Options :
+
+```text
+1 - Juste CV
+2 - CV + LM
+3 - LM seulement
+```
+
+Le menu nettoie les entrées temporaires avant chaque run. Pour coller une offre, termine par `FIN` sur une ligne seule.
+
+En mode `LM seulement`, le menu utilise un CV de référence séparé :
+
+```text
+data/input/reference_cv.docx
+data/input/reference_cv.md
+data/input/reference_cv.txt
+```
+
+S'il n'existe pas encore, le menu demande le chemin de ton CV optimisé et le copie automatiquement dans `data/input/reference_cv.*`. Les runs suivants peuvent réutiliser ce CV sans le redonner.
+
+## 2. Pipeline complet sans menu
 
 ```bash
 src/.venv/bin/python run_application.py --quiet
 ```
 
-Sorties :
+Sorties historiques :
 
 ```text
 data/output/cv/CV_....docx
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
+data/output/applications/Entreprise_Poste/
 ```
 
-Le CV Markdown est temporaire : il est supprimé automatiquement après génération réussie de la LM DOCX.
-
-## 2. Lancer le pipeline complet avec logs détaillés
+## 3. Pipeline complet avec logs détaillés
 
 ```bash
 src/.venv/bin/python run_application.py
 ```
 
-## 3. Lancer seulement le CV + tracker historique
-
-```bash
-src/.venv/bin/python run.py
-```
-
-## 4. Tester le projet
+## 4. Tests
 
 ```bash
 src/.venv/bin/python -m pytest
 ```
 
-## 5. Enrichir manuellement la base métier
+## 5. CV seul historique
+
+```bash
+src/.venv/bin/python run.py
+```
+
+## 6. Enrichir manuellement la base métier
 
 Utilise `GEMINI_DOMAIN_API_KEY`.
 
@@ -42,7 +67,7 @@ Utilise `GEMINI_DOMAIN_API_KEY`.
 src/.venv/bin/python scripts/enrich_domain_vocabulary.py
 ```
 
-## 6. Créer le template LM privé depuis l'exemple
+## 7. Créer le template LM privé depuis l'exemple
 
 ```bash
 cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
@@ -50,7 +75,7 @@ cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
 
 Puis ouvrir `templates/base_cover_letter.docx` dans Word ou LibreOffice.
 
-## 7. Vérifier les fichiers modifiés avant commit
+## 8. Vérifier les fichiers modifiés avant commit
 
 ```bash
 git status --short
@@ -69,7 +94,7 @@ data/company_profiles/
 data/tracker/applications.csv
 ```
 
-## 8. Nettoyer les caches visuels Python
+## 9. Nettoyer les caches visuels Python
 
 ```bash
 find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec rm -rf {} +
@@ -77,7 +102,7 @@ find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec
 
 Les JSON techniques de `data/output/` et le cache `data/company_profiles/` sont masqués dans VS Code par `.vscode/settings.json`.
 
-## 9. Mode VS Code clean
+## 10. Mode VS Code clean
 
 Masque le code, la doc, les templates et les fichiers techniques pour garder seulement l'usage quotidien visible.
 
@@ -116,7 +141,7 @@ path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encod
 PY
 ```
 
-## 10. Mode VS Code dev
+## 11. Mode VS Code dev
 
 Réaffiche le code, la doc, les templates et les fichiers techniques.
 

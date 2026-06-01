@@ -44,23 +44,32 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 Commande principale :
 
 ```bash
-python run_application.py
+src/.venv/bin/python run_menu.py
 ```
 
-Sorties attendues :
+Le menu guide les trois usages courants : CV seul, CV + LM, ou LM seulement. Sorties attendues :
 
 ```text
 data/output/
 ├── cv/
 │   └── CV_....docx
-└── cover_letters/
-    ├── LM_....docx
-    └── LM_...._validation.json
+├── cover_letters/
+│   ├── LM_....docx
+│   └── LM_...._validation.json
+└── applications/
+    └── Entreprise_Poste/
+        ├── CV_Entreprise_Poste.docx
+        ├── LM_Entreprise_Poste.docx
+        └── A_MODIFIER.md
 ```
 
 Les fichiers techniques du run restent dans `data/output/`, mais ils sont masqués dans VS Code pour garder l'explorateur lisible.
 
 Le CV Markdown est un fichier temporaire interne pour Gemini : il est généré, utilisé pour la LM, puis supprimé dès que la LM DOCX est créée. La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
+
+Le dossier `data/output/applications/` est le pack propre de candidature. Il applique la règle **1 job = 1 playlist** : pour une même entreprise et un même poste, le dossier est remplacé à chaque nouvelle génération. Pour une nouvelle job description, un nouveau dossier est créé. Le CV n'est pas réécrit en mode `LM seulement` : il est seulement copié et renommé pour coller à la candidature.
+
+Le pack garde un seul fichier éditable : `A_MODIFIER.md`. C'est la source lisible à ouvrir dans VS Code si tu veux demander une modification ou reprendre le texte. Les DOCX du pack sont mis à jour automatiquement à chaque génération/rendu. En revanche, si tu modifies manuellement `A_MODIFIER.md`, il faut relancer un rendu pour produire des DOCX propres.
 
 ## Logique
 
@@ -90,26 +99,53 @@ La validation bloque l'export DOCX si la LM contient un élément inventé : chi
 
 ## Commandes
 
-Les commandes prêtes à l'emploi sont dans [COMMANDS.md](COMMANDS.md).
-
-Les plus utiles :
+Commande normale :
 
 ```bash
-# Pipeline complet, affichage propre
-python run_application.py --quiet
-
-# Pipeline complet, logs détaillés
-python run_application.py
-
-# Ancien pipeline CV seul
-python run.py
-
-# Tests
-python -m pytest
-
-# Enrichir manuellement une base métier depuis l'offre courante
-python scripts/enrich_domain_vocabulary.py --domain retail_operations
+src/.venv/bin/python run_menu.py
 ```
+
+Le menu propose :
+
+```text
+1 - Juste CV
+2 - CV + LM
+3 - LM seulement
+```
+
+Commandes utiles :
+
+| Besoin | Commande |
+|---|---|
+| Usage quotidien | `src/.venv/bin/python run_menu.py` |
+| Tester le projet | `src/.venv/bin/python -m pytest` |
+| Commandes avancées | voir [COMMANDS.md](COMMANDS.md) |
+
+## Modes De Travail
+
+### Option 1 - Juste CV
+
+Tu colles une job description, puis `FIN`. ResumeForge génère un CV ciblé depuis `master_profile.xlsx` et `templates/base_cv.docx`, puis crée un pack dans `data/output/applications/`.
+
+### Option 2 - CV + LM
+
+Tu colles une job description, puis `FIN`. ResumeForge génère le CV, exporte temporairement le CV en Markdown pour Gemini, génère la LM, valide la lettre, rend le DOCX, puis crée un pack complet `CV + LM`.
+
+### Option 3 - LM seulement
+
+Ce mode sert quand tu as déjà un CV optimisé pour un domaine, par exemple un CV ADV, banque ou supply.
+
+Le CV source est stocké ici :
+
+```text
+data/input/reference_cv.docx
+data/input/reference_cv.md
+data/input/reference_cv.txt
+```
+
+Au premier run, le menu demande le chemin du CV optimisé et le copie dans `data/input/reference_cv.*`. Aux runs suivants, il propose de réutiliser ce CV. Tu peux taper `r` pour le remplacer.
+
+Ensuite tu colles seulement l'offre ou le contexte cible pour la LM, puis `FIN`. Le système utilise le CV de référence comme seule source profil, génère une LM adaptée, et crée un pack où le CV est simplement copié/renommé selon l'entreprise et le poste.
 
 ## Installation
 
@@ -314,7 +350,7 @@ Exemples :
 Pour enrichir manuellement une base depuis une nouvelle offre :
 
 ```bash
-python scripts/enrich_domain_vocabulary.py --domain retail_operations
+src/.venv/bin/python scripts/enrich_domain_vocabulary.py --domain retail_operations
 ```
 
 Cette commande utilise `GEMINI_DOMAIN_API_KEY` et ne consomme pas la clé CV ni la clé LM.
@@ -372,8 +408,9 @@ Si Google Sheets est configuré, la logique existante est réutilisée. Sinon, l
 ## Organisation
 
 ```text
-run.py                         # CV seul, conservé
-run_application.py             # pipeline complet
+run_menu.py                    # menu guidé, commande principale
+run.py                         # CV seul historique
+run_application.py             # pipeline complet sans menu
 src/application/               # contexte, tracking, markdown CV, recherche, base métier
 src/letter/                    # prompt LM, génération, validation, rendu DOCX
 src/render/                    # rendu Word
@@ -423,7 +460,7 @@ templates/domain_vocabulary/*.json
 ## Tests
 
 ```bash
-python -m pytest
+src/.venv/bin/python -m pytest
 ```
 
 Les tests ne nécessitent pas de clé Gemini.

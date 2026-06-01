@@ -25,6 +25,7 @@
     "requirements.txt": true,
     "run.py": true,
     "run_application.py": true,
+    "run_menu.py": true,
     "scripts": true,
     "src": true,
     "templates": true,
@@ -38,5 +39,7 @@
     "data/output": true,
     "data/company_profiles": true,
     "credentials": true
-  }
+  },
+  "explorer.excludeGitIgnore": false,
+  "snyk.advanced.autoSelectOrganization": true
 }
