@@ -35,9 +35,11 @@ from src.config import (
     OUTPUT_DIR,
 )
 from src.generate_cv import load_job_description, main as generate_cv, parse_job
+from src.parsers.job_parser import parse_job_description
 from src.letter.letter_docx_renderer import render_letter_docx
 from src.letter.letter_prompt_builder import build_letter_prompt
 from src.letter.letter_result_parser import LetterResultParseError, parse_letter_result, save_letter_result
+from src.letter.letter_sanitizer import sanitize_letter_result
 from src.letter.letter_validator import validate_letter_result
 from src.letter.lm_generator import generate_letter_with_gemini
 
@@ -82,6 +84,24 @@ def _repair_parsed_job(parsed_job: dict, job_text: str) -> dict:
             repaired["job_title"] = "Responsable Administration des Ventes"
 
     return repaired
+
+
+def _merge_job_metadata(parsed_job: dict, job_text: str) -> dict:
+    """Add metadata handled by the richer parser without overriding CV targeting."""
+    enriched = dict(parsed_job)
+    details = parse_job_description(job_text)
+    for key in [
+        "salary",
+        "location",
+        "contract_type",
+        "seniority",
+        "job_family",
+        "secondary_job_families",
+    ]:
+        value = details.get(key)
+        if value and not enriched.get(key):
+            enriched[key] = value
+    return enriched
 
 
 def _artifact_stem(company: str, job_title: str, timestamp: str) -> str:
@@ -197,6 +217,7 @@ def main(quiet: bool = False) -> None:
 
     job_text = load_job_description() if JOB_DESCRIPTION_PATH.exists() else report.get("job_description", "")
     parsed_job = parse_job(job_text)
+    parsed_job = _merge_job_metadata(parsed_job, job_text)
     parsed_job = _repair_parsed_job(parsed_job, job_text)
     if report.get("company_detected"):
         parsed_job["company"] = _repair_parsed_job({"company": report["company_detected"], "job_title": parsed_job.get("job_title", "")}, job_text)["company"]
@@ -245,6 +266,17 @@ def main(quiet: bool = False) -> None:
         if not quiet:
             print("GEMINI_LETTER_API_KEY absente - LM ignoree proprement.")
         validation_report = _write_skipped_report(application_context, "missing_GEMINI_LETTER_API_KEY", validation_path)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            validation_path=validation_path,
+            mode_label="CV",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)
         return
@@ -261,6 +293,7 @@ def main(quiet: bool = False) -> None:
 
     try:
         letter_result = parse_letter_result(raw_result)
+        letter_result = sanitize_letter_result(letter_result, cv_markdown)
         save_letter_result(letter_result, LETTER_RESULT_PATH)
     except LetterResultParseError as exc:
         failed_output_path.write_text(raw_result, encoding="utf-8")
@@ -279,6 +312,19 @@ def main(quiet: bool = False) -> None:
             "cv_docx_path": str(cv_docx_path),
             "cv_markdown_path": str(cv_markdown_path),
         }
+        _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=raw_result,
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="CV_LM_REVIEW",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         print(f"LM invalide : {validation_path}")
@@ -301,6 +347,19 @@ def main(quiet: bool = False) -> None:
         validation_report["lm_docx_path"] = None
         validation_report["tracker_update_status"] = "skipped_validation_failed"
         _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result.get("final_letter", raw_result),
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="CV_LM_REVIEW",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)
         return
@@ -312,6 +371,18 @@ def main(quiet: bool = False) -> None:
             "missing_base_cover_letter_docx: cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx"
         )
         validation_report["lm_docx_path"] = None
+        _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result["final_letter"],
+            validation_path=validation_path,
+            mode_label="CV_LM_NO_DOCX",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)

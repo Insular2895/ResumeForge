@@ -48,6 +48,10 @@ CONTRAINTE ABSOLUE:
 - Ne lis et n'utilise jamais master_profile.xlsx.
 - La seule source profil autorisee est le CV Markdown final fourni ci-dessous.
 - application_context.json controle toutes les affirmations autorisees.
+- L'entreprise destinataire obligatoire est exactement `application_context.company`.
+- `final_letter` doit mentionner explicitement `application_context.company`.
+- Si la job description mentionne un autre nom d'entreprise, un client, une marque, un cabinet ou une filiale, ne le substitue jamais a `application_context.company`.
+- Tu peux mentionner un autre nom seulement comme contexte du poste si l'offre le rend necessaire, mais la candidature reste adressee a `application_context.company`.
 - `facts_retained` est reserve uniquement aux faits entreprise autorises presents dans application_context.selected_company_facts.
 - Si application_context.selected_company_facts est vide, `facts_retained` doit etre [].
 - Ne mets jamais de preuve CV, d'experience, de certification, d'outil ou de competence dans `facts_retained`.

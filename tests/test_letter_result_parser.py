@@ -12,3 +12,7 @@ def test_parse_rejects_invalid_json():
     with pytest.raises(LetterResultParseError):
         parse_letter_result("not json")
 
+
+def test_parse_extracts_json_from_extra_model_text():
+    result = parse_letter_result('Voici le JSON:\n{"final_letter": "Bonjour"}\nMerci')
+    assert result["final_letter"] == "Bonjour"

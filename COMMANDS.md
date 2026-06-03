@@ -14,7 +14,11 @@ Options :
 3 - LM seulement
 ```
 
-Le menu nettoie les entrées temporaires avant chaque run. Pour coller une offre, termine par `FIN` sur une ligne seule.
+Le menu nettoie les entrées temporaires avant chaque run.
+Pour une offre, colle directement le texte de la JB dans le terminal puis appuie sur `Entrée`.
+Le collage multi-lignes est détecté automatiquement, sans `FIN`.
+Si tu appuies sur `Entrée` sans texte, le menu essaie d'utiliser le presse-papiers.
+`FIN` reste disponible uniquement en secours.
 
 En mode `LM seulement`, le menu utilise un CV de référence séparé :
 
@@ -122,6 +126,8 @@ files_exclude.update({
     "cv-tailor.code-workspace": True,
     "data/output/.gitkeep": True,
     "data/output/*.json": True,
+    "data/output/cv": True,
+    "data/output/cover_letters": True,
     "data/company_profiles": True,
     "data/.claude": True,
     "docs": True,

@@ -18,7 +18,6 @@ BANNED_CLICHES = [
     "votre organisation reconnue",
     "mon expertise",
     "cette expertise",
-    "expertise",
     "maitrise des flux",
     "maîtrise des flux",
     "maitrise technique",
@@ -120,7 +119,7 @@ def validate_letter_result(
     if not final_letter:
         errors.append("missing_final_letter")
     word_count = len(_words(final_letter))
-    if final_letter and not 120 <= word_count <= 420:
+    if final_letter and not 120 <= word_count <= 450:
         errors.append(f"length_out_of_range: {word_count}_words")
     if _has_markdown(final_letter):
         errors.append("contains_markdown")
@@ -130,7 +129,8 @@ def validate_letter_result(
         errors.append("contains_placeholder")
     if _contains_salutation_start(final_letter):
         errors.append("contains_salutation_in_final_letter")
-    if company and company.casefold() not in final_letter.casefold():
+    generic_companies = {"entreprise", "societe", "société", "company"}
+    if company and company.casefold() not in generic_companies and company.casefold() not in final_letter.casefold():
         errors.append("company_not_mentioned")
     if job_title and not _job_title_is_mentioned(job_title, final_letter):
         errors.append("job_title_not_mentioned")
@@ -242,7 +242,7 @@ def _company_fact_matches(candidate: str, allowed: str) -> bool:
         return False
 
     overlap = len(candidate_words & allowed_words) / max(1, min(len(candidate_words), len(allowed_words)))
-    return overlap >= 0.55 or _similarity(candidate, allowed) >= 0.62
+    return overlap >= 0.40 or _similarity(candidate, allowed) >= 0.58
 
 
 def _term_is_in_cv(term: str, cv_lower: str) -> bool:

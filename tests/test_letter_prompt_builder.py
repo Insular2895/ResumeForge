@@ -17,4 +17,4 @@ def test_prompt_contains_references_and_forbids_annotations():
     assert "LM_DEMO_VALIDEE_MD" in prompt
     assert "annotations comme [ROLE:]" in prompt
     assert "N'exporte jamais de lettre finale en Markdown" in prompt
-
+    assert "L'entreprise destinataire obligatoire est exactement `application_context.company`" in prompt

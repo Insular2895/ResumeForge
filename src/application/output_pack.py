@@ -13,8 +13,14 @@ def _safe_name(value: str, fallback: str = "candidature", max_length: int = 70) 
     text = str(value or "").strip() or fallback
     text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text if not unicodedata.combining(char))
-    text = re.sub(r"[^A-Za-z0-9]+", "_", text)
-    text = re.sub(r"_+", "_", text).strip("_")
+    text = re.sub(r"(?i)\s*[-–—]?\s*job\s*post\s*$", "", text).strip()
+    text = re.sub(r"(?i)\bcharge\(e\)", "Charge", text)
+    text = re.sub(r"(?i)\bassistant\(e\)", "Assistant", text)
+    text = re.sub(r"(?i)\s*[-–—]?\s*\(?\s*[hf]\s*/\s*[hf]\s*\)?\s*$", "", text).strip()
+    text = re.sub(r"[^A-Za-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if text.isupper() and len(text) > 3:
+        text = text.title()
     return (text or fallback)[:max_length].strip("_")
 
 
@@ -88,25 +94,33 @@ def create_application_pack(
     lm_docx_path: str | Path | None = None,
     final_letter: str = "",
     validation_path: str | Path | None = None,
+    failed_output_path: str | Path | None = None,
     mode_label: str = "CV_LM",
     timestamp: str | None = None,
 ) -> Path:
     company_slug = _safe_name(company, "Entreprise")
     job_slug = _safe_name(job_title, "Poste")
-    pack_dir = APPLICATION_PACKS_DIR / f"{company_slug}_{job_slug}"
+    readable_stem = f"{company_slug} - {job_slug}"
+    pack_name = f"{readable_stem} - {timestamp}" if timestamp else readable_stem
+    pack_dir = APPLICATION_PACKS_DIR / pack_name
 
     if pack_dir.exists():
-        shutil.rmtree(pack_dir)
+        suffix = 2
+        while (APPLICATION_PACKS_DIR / f"{pack_name} ({suffix})").exists():
+            suffix += 1
+        pack_dir = APPLICATION_PACKS_DIR / f"{pack_name} ({suffix})"
 
     pack_dir.mkdir(parents=True, exist_ok=True)
 
-    stem = f"{company_slug}_{job_slug}"
+    stem = readable_stem
     cv_source = Path(cv_path) if cv_path else None
     if cv_source and cv_source.exists() and cv_source.suffix.lower() == ".docx":
-        _copy_if_exists(cv_source, pack_dir / f"CV_{stem}{cv_source.suffix.lower()}")
+        _copy_if_exists(cv_source, pack_dir / f"CV - {stem}{cv_source.suffix.lower()}")
 
     cv_md = _ensure_cv_markdown(cv_source, cv_markdown)
-    _copy_if_exists(lm_docx_path, pack_dir / f"LM_{stem}.docx")
+    _copy_if_exists(lm_docx_path, pack_dir / f"LM - {stem}.docx")
+    _copy_if_exists(validation_path, pack_dir / "validation.json")
+    _copy_if_exists(failed_output_path, pack_dir / "LM_a_revoir.txt")
 
     _write_text(
         pack_dir / "A_MODIFIER.md",

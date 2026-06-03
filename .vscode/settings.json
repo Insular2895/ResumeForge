@@ -17,6 +17,8 @@
     "cv-tailor.code-workspace": true,
     "data/output/.gitkeep": true,
     "data/output/*.json": true,
+    "data/output/cv": true,
+    "data/output/cover_letters": true,
     "data/company_profiles": true,
     "data/.claude": true,
     "docs": true,

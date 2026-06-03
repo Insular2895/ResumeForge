@@ -4,7 +4,10 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
+import subprocess
+import sys
 from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
@@ -37,9 +40,11 @@ from src.config import (
     OUTPUT_DIR,
 )
 from src.generate_cv import main as generate_cv, parse_job
+from src.parsers.job_parser import parse_job_description
 from src.letter.letter_docx_renderer import render_letter_docx
 from src.letter.letter_prompt_builder import build_letter_prompt
 from src.letter.letter_result_parser import LetterResultParseError, parse_letter_result, save_letter_result
+from src.letter.letter_sanitizer import sanitize_letter_result
 from src.letter.letter_validator import validate_letter_result
 from src.letter.lm_generator import generate_letter_with_gemini
 
@@ -85,17 +90,64 @@ def _prompt_choice() -> str:
 def _prompt_multiline(label: str, required: bool = True) -> str:
     print()
     print(label)
-    print("Colle le texte, puis tape FIN sur une ligne seule.")
+    print("Colle l'offre puis appuie sur Entrée. Le collage multi-lignes est détecté automatiquement.")
+    print("Entrée sans texte utilise le presse-papiers. FIN reste disponible en secours.")
     lines: list[str] = []
     while True:
         line = input()
+        if not lines and not line.strip():
+            clipboard_text = _read_clipboard_text()
+            if clipboard_text:
+                return clipboard_text
+            if required:
+                raise ValueError("Texte requis ou presse-papiers vide.")
+            return ""
         if line.strip().upper() == "FIN":
             break
         lines.append(line)
+        lines.extend(_read_buffered_stdin_tail())
+        break
     text = "\n".join(lines).strip()
     if required and not text:
         raise ValueError("Texte requis.")
     return text
+
+
+def _read_buffered_stdin_tail(timeout_seconds: float = 0.35) -> list[str]:
+    lines: list[str] = []
+    while _stdin_has_buffered_line(timeout_seconds):
+        line = sys.stdin.readline()
+        if line == "":
+            break
+        line = line.rstrip("\n")
+        if line.strip().upper() == "FIN":
+            break
+        lines.append(line)
+    return lines
+
+
+def _stdin_has_buffered_line(timeout_seconds: float) -> bool:
+    try:
+        readable, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+    except (OSError, ValueError):
+        return False
+    return bool(readable)
+
+
+def _read_clipboard_text() -> str:
+    try:
+        result = subprocess.run(
+            ["pbpaste"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
 
 
 def _write_job_description(job_text: str) -> None:
@@ -125,6 +177,7 @@ def _run_cv_only(quiet: bool) -> None:
         job_title=job_title,
         cv_path=cv_docx_path,
         mode_label="CV",
+        timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
     )
     print()
     print("CV généré.")
@@ -272,6 +325,10 @@ def _build_lm_only_context(
 ) -> tuple[dict, str]:
     if target_text.strip():
         parsed_job = parse_job(target_text)
+        parsed_details = parse_job_description(target_text)
+        for key in ["salary", "location", "contract_type", "seniority", "job_family", "secondary_job_families"]:
+            if parsed_details.get(key) and not parsed_job.get(key):
+                parsed_job[key] = parsed_details[key]
         company = parsed_job.get("company", "")
         job_title = parsed_job.get("job_title", "")
     else:
@@ -358,12 +415,11 @@ def _run_lm_only() -> None:
 
     try:
         letter_result = parse_letter_result(raw_result)
+        letter_result = sanitize_letter_result(letter_result, cv_markdown)
         save_letter_result(letter_result, LETTER_RESULT_PATH)
     except LetterResultParseError as exc:
         failed_output_path.write_text(raw_result, encoding="utf-8")
-        _write_json(
-            validation_path,
-            {
+        validation_report = {
                 "validation_status": "failed",
                 "errors": [str(exc)],
                 "failed_output_path": str(failed_output_path),
@@ -373,9 +429,23 @@ def _run_lm_only() -> None:
                 "cv_docx_path": str(cv_runtime_path),
                 "cv_markdown_path": str(cv_markdown_path),
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
-            },
+            }
+        _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=application_context.get("company", "Entreprise"),
+            job_title=application_context.get("job_title", "Poste cible"),
+            cv_path=cv_runtime_path,
+            cv_markdown=cv_markdown,
+            final_letter=raw_result,
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="LM_REVIEW",
+            timestamp=timestamp,
         )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         print(f"LM invalide : {validation_path}")
+        print(f"Pack candidature : {pack_path}")
         return
 
     validation_report = validate_letter_result(
@@ -393,7 +463,21 @@ def _run_lm_only() -> None:
         validation_report["failed_output_path"] = str(failed_output_path)
         validation_report["lm_docx_path"] = None
         _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=application_context.get("company", "Entreprise"),
+            job_title=application_context.get("job_title", "Poste cible"),
+            cv_path=cv_runtime_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result.get("final_letter", raw_result),
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="LM_REVIEW",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         print(f"LM à revoir : {validation_path}")
+        print(f"Pack candidature : {pack_path}")
         return
 
     if not BASE_COVER_LETTER_PATH.exists():
@@ -403,7 +487,20 @@ def _run_lm_only() -> None:
         )
         validation_report["lm_docx_path"] = None
         _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=application_context.get("company", "Entreprise"),
+            job_title=application_context.get("job_title", "Poste cible"),
+            cv_path=cv_runtime_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result["final_letter"],
+            validation_path=validation_path,
+            mode_label="LM_NO_DOCX",
+            timestamp=timestamp,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         print(f"LM validée mais DOCX non rendu : {validation_path}")
+        print(f"Pack candidature : {pack_path}")
         return
 
     render_letter_docx(application_context, letter_result["final_letter"], lm_docx_path)

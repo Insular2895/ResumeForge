@@ -39,6 +39,8 @@ def normalize_company(raw_name: str) -> tuple[str, str]:
     words = [word for word in re.split(r"[\s,]+", clean) if word]
     display_words = [word for word in words if word.lower() not in LEGAL_SUFFIXES]
     display = " ".join(display_words).strip() or clean
+    if display.isupper() and len(display) > 3:
+        display = display.title()
     return display, slugify(display)
 
 

@@ -74,3 +74,13 @@ def test_validator_rejects_inventions_and_markdown():
     assert "tool_absent_from_cv: Salesforce" in report["errors"]
     assert any(error.startswith("unauthorized_company_fact") for error in report["errors"])
 
+
+def test_validator_accepts_close_company_fact_paraphrase():
+    result = _valid_result()
+    result["facts_retained"] = [
+        "Ipsen développe des traitements avec une approche concrète centrée sur les patients."
+    ]
+
+    report = validate_letter_result(result, _context(), cv_markdown="Blurry\nSAP\n12 partenaires")
+
+    assert report["validation_status"] == "success"

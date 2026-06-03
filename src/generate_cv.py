@@ -96,6 +96,21 @@ def clean_filename_part(value, fallback, max_length=40):
     return text[:max_length].strip("_")
 
 
+def clean_detected_job_title(value):
+    title = safe_str(value)
+    if not title:
+        return "Poste cible"
+
+    title = re.sub(r"(?i)\s*[-–—]?\s*job\s*post\s*$", "", title).strip()
+    title = re.sub(r"(?i)\bcharg[ée]\(e\)", "Chargé", title)
+    title = re.sub(r"(?i)\bassistant\(e\)", "Assistant", title)
+    title = re.sub(r"(?i)\s*[-–—]?\s*\(?\s*[hf]\s*/\s*[hf]\s*\)?\s*$", "", title).strip()
+    title = re.sub(r"\s*/\s*", " / ", title)
+    title = re.sub(r"\s*[-–—]\s*", " - ", title)
+    title = re.sub(r"\s+", " ", title).strip(" -")
+    return title or "Poste cible"
+
+
 def format_year_or_date(value):
     value = safe_str(value)
 
@@ -192,6 +207,27 @@ def load_master_profile():
 def extract_company(job_text):
     lines = [l.strip() for l in job_text.splitlines() if l.strip()]
 
+    staffing_client = extract_staffing_client_company(job_text)
+    if staffing_client:
+        return staffing_client
+
+    header_company = extract_company_from_job_board_header(lines)
+    if header_company:
+        return header_company
+
+    employer_patterns = [
+        r"(?i)\bpour\s+l['’]entreprise\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,50})\b",
+        r"(?i)\bnous\s+sommes\s+l['’]entreprise\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,50})\b",
+        r"(?i)\bl['’]entreprise\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,50})\s+(?:recherche|recrute|est|exerce|conçoit|concoit|développe|developpe)\b",
+    ]
+
+    for pattern in employer_patterns:
+        match = re.search(pattern, job_text)
+        if match:
+            company = clean_detected_company(match.group(1))
+            if 2 <= len(company) <= 40:
+                return company
+
     labeled_patterns = [
         r"company\s*[:\-]\s*(.+)",
         r"entreprise\s*[:\-]\s*(.+)",
@@ -209,6 +245,9 @@ def extract_company(job_text):
                     return company
 
     context_patterns = [
+        r"(?i)wanted\s+for\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,50})\b",
+        r"(?i)\bchez\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,50})\b",
+        r"([A-Z][A-Z0-9&.\- ]{2,})\s+(?:exerce|est|recherche|conçoit|concoit|développe|developpe)\b",
         r"(?:why\s+)?join\s+([A-Z][A-Za-z0-9\-&]+)",
         r"join\s+the\s+([A-Z][A-Za-z0-9\-&]+)\s+team",
         r"([A-Z][A-Za-z0-9\-&]{2,})\s+is\s+(?:looking|seeking|hiring|searching)",
@@ -225,7 +264,7 @@ def extract_company(job_text):
         for pattern in context_patterns:
             match = re.search(pattern, line)
             if match:
-                candidate = match.group(1).strip()
+                candidate = clean_detected_company(match.group(1))
                 if candidate.lower() not in stop and 2 <= len(candidate) <= 40:
                     return candidate
 
@@ -234,6 +273,109 @@ def extract_company(job_text):
         return "Ipsen"
 
     return "Entreprise"
+
+
+def extract_staffing_client_company(job_text):
+    text_norm = normalize_text(job_text)
+    staffing_markers = [
+        "adecco",
+        "spera recrutement",
+        "page personnel",
+        "actual talent",
+        "artus interim",
+        "recrutement",
+        "interim",
+        "intérim",
+    ]
+    if not any(marker in text_norm for marker in staffing_markers):
+        return ""
+
+    known_clients = {
+        "stellantis": "Stellantis",
+        "stelentis": "Stellantis",
+        "stellentis": "Stellantis",
+    }
+    for marker, display in known_clients.items():
+        if marker in text_norm:
+            return display
+
+    patterns = [
+        r"(?i)\b(?:adecco|cabinet|agence)\s+recrute\s+pour\s+son\s+client\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
+        r"(?i)\bpour\s+son\s+client\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
+        r"(?i)\bclient\s*:?\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, job_text)
+        if match:
+            candidate = clean_detected_company(match.group(1))
+            if 2 <= len(candidate) <= 45:
+                return candidate
+    return ""
+
+
+def extract_company_from_job_board_header(lines):
+    for line in lines[:8]:
+        wanted = re.search(r"(?i)^wanted\s+for\s+(.+)$", line)
+        if wanted:
+            candidate = clean_detected_company(wanted.group(1))
+            if looks_like_header_company(candidate):
+                return candidate
+
+    for line in lines[:8]:
+        cleaned = clean_detected_company(line)
+        title = clean_detected_job_title(cleaned)
+        if looks_like_real_job_title(title):
+            continue
+        if looks_like_header_company(cleaned):
+            return cleaned
+
+    return ""
+
+
+def looks_like_header_company(value):
+    company = safe_str(value)
+    if not company:
+        return False
+
+    lowered = normalize_text(company)
+    forbidden = [
+        "details de l emploi",
+        "correspondance entre ce poste",
+        "salaire",
+        "type de poste",
+        "lieu",
+        "job post",
+        "cdi",
+        "temps plein",
+        "teletravail",
+        "a repondu",
+        "pour l entreprise",
+        "nous sommes l entreprise",
+        "de 30",
+        "de 32",
+        "par an",
+    ]
+    if any(fragment in lowered for fragment in forbidden):
+        return False
+    if re.search(r"\d{2,3}\s?000|€|\([0-9]{2}\)", company):
+        return False
+    if len(company.split()) > 5:
+        return False
+    return bool(re.search(r"[A-Za-zÀ-ÿ]{2,}", company))
+
+
+def clean_detected_company(value):
+    company = safe_str(value)
+    company = re.sub(r"(?i)\s*[-–—]?\s*job\s*post\s*$", "", company).strip()
+    company = re.split(
+        r"(?i)\s*,|\s+pour\s+|\s+recherche\s+|\s+recrute\s+|\s+est\s+|\s+exerce\s+|\s+sp[ée]cialis[ée]e?\s+",
+        company,
+        maxsplit=1,
+    )[0]
+    company = re.sub(r"\s+", " ", company).strip(" -:|•")
+    if company.isupper() and len(company) > 3:
+        company = company.title()
+    return company
 
 
 def looks_like_real_job_title(line):
@@ -315,13 +457,13 @@ def extract_job_title(job_text):
         for pattern in patterns:
             match = re.search(pattern, line, flags=re.IGNORECASE)
             if match:
-                title = match.group(1).strip()
+                title = clean_detected_job_title(match.group(1))
                 title = re.sub(r"\s*\([^)]*\)", "", title).strip()
                 if looks_like_real_job_title(title):
                     return title
 
     for line in lines[:25]:
-        cleaned = re.sub(r"\s*\([^)]*\)", "", line).strip()
+        cleaned = clean_detected_job_title(re.sub(r"\s*\([^)]*\)", "", line).strip())
         if looks_like_real_job_title(cleaned):
             return cleaned
 
