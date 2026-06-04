@@ -22,6 +22,7 @@ from src.application.company_research import (
 )
 from src.application.cv_markdown_exporter import export_cv_markdown
 from src.application.output_pack import create_application_pack
+from src.application.ats_matcher import analyze_ats_match
 from src.config import (
     APPLICATION_CONTEXT_PATH,
     BASE_COVER_LETTER_PATH,
@@ -119,6 +120,8 @@ def _write_skipped_report(application_context: dict, reason: str, validation_pat
         "location": application_context.get("location", ""),
         "job_url": application_context.get("job_url", ""),
         "job_family": application_context.get("job_family", ""),
+        "ats_score": application_context.get("ats_score"),
+        "ats_final": application_context.get("ats_final", {}),
         "cv_docx_path": application_context.get("cv_docx_path", ""),
         "cv_markdown_path": application_context.get("cv_markdown_path", ""),
         "lm_docx_path": None,
@@ -182,6 +185,8 @@ def _cleanup_success_markdown(cv_markdown_path: Path, validation_report: dict) -
 def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_path: Path) -> None:
     print("Pipeline candidature terminé.")
     print(f"Statut validation : {validation_report.get('validation_status')}")
+    if validation_report.get("ats_score") is not None:
+        print(f"Score ATS final : {validation_report.get('ats_score')}%")
     print(f"CV DOCX : {validation_report.get('cv_docx_path')}")
     if cv_markdown_path.exists():
         print(f"CV Markdown temporaire : {cv_markdown_path}")
@@ -216,6 +221,10 @@ def main(quiet: bool = False) -> None:
         print(f"CV Markdown genere : {cv_markdown_path}")
 
     job_text = load_job_description() if JOB_DESCRIPTION_PATH.exists() else report.get("job_description", "")
+    ats_final = analyze_ats_match(cv_markdown, job_text) if job_text.strip() else report.get("ats_final", {})
+    report["ats_final"] = ats_final
+    report["ats_score"] = ats_final.get("score")
+    _write_json(LAST_RUN_REPORT_PATH, report)
     parsed_job = parse_job(job_text)
     parsed_job = _merge_job_metadata(parsed_job, job_text)
     parsed_job = _repair_parsed_job(parsed_job, job_text)
@@ -258,6 +267,7 @@ def main(quiet: bool = False) -> None:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     artifact_stem = _artifact_stem(company_name, parsed_job.get("job_title", "Poste cible"), timestamp)
+    ats_score = report.get("ats_score")
     validation_path = COVER_LETTERS_DIR / f"{artifact_stem}_validation.json"
     failed_output_path = COVER_LETTERS_DIR / f"LM_FAILED_{timestamp}.txt"
     lm_docx_path = COVER_LETTERS_DIR / f"{artifact_stem}.docx"
@@ -274,6 +284,7 @@ def main(quiet: bool = False) -> None:
             validation_path=validation_path,
             mode_label="CV",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -309,6 +320,8 @@ def main(quiet: bool = False) -> None:
             "salary": parsed_job.get("salary", ""),
             "location": parsed_job.get("location", ""),
             "job_url": parsed_job.get("job_url", ""),
+            "ats_score": ats_score,
+            "ats_final": report.get("ats_final", {}),
             "cv_docx_path": str(cv_docx_path),
             "cv_markdown_path": str(cv_markdown_path),
         }
@@ -323,6 +336,7 @@ def main(quiet: bool = False) -> None:
             failed_output_path=failed_output_path,
             mode_label="CV_LM_REVIEW",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -357,6 +371,7 @@ def main(quiet: bool = False) -> None:
             failed_output_path=failed_output_path,
             mode_label="CV_LM_REVIEW",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -381,6 +396,7 @@ def main(quiet: bool = False) -> None:
             validation_path=validation_path,
             mode_label="CV_LM_NO_DOCX",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -400,6 +416,7 @@ def main(quiet: bool = False) -> None:
         validation_path=validation_path,
         mode_label="CV_LM",
         timestamp=timestamp,
+        ats_score=ats_score,
     )
     validation_report["application_pack_path"] = str(pack_path)
     _cleanup_success_markdown(cv_markdown_path, validation_report)

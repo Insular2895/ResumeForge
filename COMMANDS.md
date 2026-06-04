@@ -20,6 +20,26 @@ Le collage multi-lignes est détecté automatiquement, sans `FIN`.
 Si tu appuies sur `Entrée` sans texte, le menu essaie d'utiliser le presse-papiers.
 `FIN` reste disponible uniquement en secours.
 
+En modes `Juste CV` et `CV + LM`, le pipeline lance une passe ATS automatiquement :
+score CV/JB, suggestions de mots-clés, optimisation du CV final, puis génération de la LM sur ce CV final.
+Le score ATS final est basé sur le modèle multi-plateformes de `sunnypatell/ats-screener`
+(Workday, Taleo, SuccessFactors, iCIMS, Greenhouse, Lever), adapté en Python avec une
+extraction de mots-clés française orientée ADV/ERP.
+Si la JB est très courte, le pipeline ajoute un vocabulaire métier de référence selon le
+poste détecté (ex. ADV -> commandes, facturation, ERP, Incoterms, logistique). Les offres
+détaillées restent guidées par leurs propres mots-clés.
+Les passes Gemini sont gardées seulement si elles maintiennent ou améliorent le score ATS :
+une optimisation qui baisse le score est automatiquement ignorée.
+Dans Google Sheets, `ats_match_percent` est la première colonne et les dates restent en
+deuxième colonne (`created_at`).
+La playlist finale commence par le score ATS, par exemple :
+
+```text
+99% Ipsen - Gestionnaire ADV - 20260604_104500/
+```
+
+Les fichiers ATS intermédiaires ne sont pas affichés dans la playlist finale.
+
 En mode `LM seulement`, le menu utilise un CV de référence séparé :
 
 ```text
@@ -42,7 +62,7 @@ Sorties historiques :
 data/output/cv/CV_....docx
 data/output/cover_letters/LM_....docx
 data/output/cover_letters/LM_...._validation.json
-data/output/applications/Entreprise_Poste/
+data/output/applications/95% Entreprise - Poste - timestamp/
 ```
 
 ## 3. Pipeline complet avec logs détaillés

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import csv
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -11,6 +12,7 @@ from src.config import APPLICATION_TRACKER_CSV_PATH, BASE_DIR
 
 
 TRACKER_FIELDS = [
+    "ats_match_percent",
     "timestamp",
     "company",
     "job_title",
@@ -28,7 +30,10 @@ TRACKER_FIELDS = [
     "tracker_update_status",
 ]
 
+LEGACY_TRACKER_FIELDS = TRACKER_FIELDS[1:]
+
 GOOGLE_SHEET_FIELDS = [
+    "ats_match_percent",
     "created_at",
     "company",
     "job_title",
@@ -49,6 +54,8 @@ GOOGLE_SHEET_FIELDS = [
     "timestamp",
 ]
 
+LEGACY_GOOGLE_SHEET_FIELDS = GOOGLE_SHEET_FIELDS[1:]
+
 ENV_PATH = BASE_DIR / ".env"
 SERVICE_ACCOUNT_PATH = BASE_DIR / "credentials" / "service_account.json"
 
@@ -61,18 +68,55 @@ def _read_csv_rows(tracker_path: Path) -> list[list[str]]:
         return list(csv.reader(file))
 
 
+def _pad_tracker_row(row: list[str]) -> list[str]:
+    return (list(row) + [""] * len(TRACKER_FIELDS))[: len(TRACKER_FIELDS)]
+
+
+def _migrate_tracker_rows(rows: list[list[str]]) -> list[list[str]] | None:
+    if not rows:
+        return None
+
+    header = rows[0]
+    if header == TRACKER_FIELDS:
+        migrated = [TRACKER_FIELDS]
+        changed = False
+        for row in rows[1:]:
+            if row == LEGACY_TRACKER_FIELDS or (
+                bool(row) and _safe_str(row[0]).casefold() == "timestamp"
+            ):
+                changed = True
+                continue
+            if row and _looks_like_timestamp(row[0]):
+                migrated.append(_pad_tracker_row(["", *row]))
+                changed = True
+            else:
+                migrated.append(_pad_tracker_row(row))
+        return migrated if changed else None
+
+    legacy_header = header == LEGACY_TRACKER_FIELDS or (
+        bool(header) and _safe_str(header[0]).casefold() == "timestamp"
+    )
+    if legacy_header:
+        return [TRACKER_FIELDS, *[_pad_tracker_row(["", *row]) for row in rows[1:]]]
+
+    if header and _looks_like_timestamp(header[0]):
+        return [TRACKER_FIELDS, *[_pad_tracker_row(["", *row]) for row in rows]]
+
+    return [TRACKER_FIELDS, *[_pad_tracker_row(row) for row in rows]]
+
+
 def _ensure_csv_header(tracker_path: Path) -> None:
     rows = _read_csv_rows(tracker_path)
     if not rows:
         return
 
-    if rows[0] == TRACKER_FIELDS:
+    migrated_rows = _migrate_tracker_rows(rows)
+    if migrated_rows is None:
         return
 
     with tracker_path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(TRACKER_FIELDS)
-        writer.writerows(rows)
+        writer.writerows(migrated_rows)
 
 
 def _number_to_column_letter(number: int) -> str:
@@ -90,6 +134,68 @@ def _safe_str(value) -> str:
     if text.lower() in {"none", "nan", "nat"}:
         return ""
     return text
+
+
+def _looks_like_timestamp(value: str) -> bool:
+    return bool(re.match(r"^\s*20\d{2}-\d{2}-\d{2}", _safe_str(value)))
+
+
+def _is_header_row(row: list[str], headers: list[str]) -> bool:
+    normalized_row = [_safe_str(cell).casefold() for cell in row[: len(headers)]]
+    normalized_headers = [header.casefold() for header in headers[: len(normalized_row)]]
+    return bool(normalized_row) and normalized_row == normalized_headers
+
+
+def _pad_sheet_row(row: list[str], width: int) -> list[str]:
+    return (list(row) + [""] * width)[:width]
+
+
+def _migrate_google_sheet_values(values: list[list[str]]) -> list[list[str]] | None:
+    width = len(GOOGLE_SHEET_FIELDS)
+    if not values:
+        return [GOOGLE_SHEET_FIELDS]
+
+    header = values[0]
+    rows = values[1:]
+
+    current_header = _is_header_row(header, GOOGLE_SHEET_FIELDS)
+    legacy_header = (
+        _is_header_row(header, LEGACY_GOOGLE_SHEET_FIELDS)
+        or (bool(header) and _safe_str(header[0]).casefold() in {"created_at", "timestamp"})
+    )
+
+    if current_header:
+        migrated = [GOOGLE_SHEET_FIELDS]
+        changed = header != GOOGLE_SHEET_FIELDS
+        for row in rows:
+            if row == LEGACY_GOOGLE_SHEET_FIELDS or (
+                bool(row) and _safe_str(row[0]).casefold() in {"created_at", "timestamp"}
+            ):
+                changed = True
+                continue
+            if row and _looks_like_timestamp(row[0]):
+                migrated.append(_pad_sheet_row(["", *row], width))
+                changed = True
+            else:
+                migrated.append(_pad_sheet_row(row, width))
+        return migrated if changed else None
+
+    if legacy_header:
+        migrated = [GOOGLE_SHEET_FIELDS]
+        for row in rows:
+            migrated.append(_pad_sheet_row(["", *row], width))
+        return migrated
+
+    if header and _looks_like_timestamp(header[0]):
+        migrated = [GOOGLE_SHEET_FIELDS]
+        for row in values:
+            migrated.append(_pad_sheet_row(["", *row], width))
+        return migrated
+
+    migrated = [GOOGLE_SHEET_FIELDS]
+    for row in rows:
+        migrated.append(_pad_sheet_row(row, width))
+    return migrated
 
 
 def _safe_join(value) -> str:
@@ -157,9 +263,15 @@ def _calculate_score(report: dict) -> str:
 
 
 def _ensure_google_sheet_headers(worksheet) -> list[str]:
-    worksheet.update(range_name="A1", values=[GOOGLE_SHEET_FIELDS])
-    if worksheet.col_count > len(GOOGLE_SHEET_FIELDS):
-        worksheet.resize(rows=worksheet.row_count, cols=len(GOOGLE_SHEET_FIELDS))
+    values = worksheet.get_all_values()
+    migrated_values = _migrate_google_sheet_values(values)
+    target_rows = max(worksheet.row_count, len(migrated_values or [GOOGLE_SHEET_FIELDS]))
+    if worksheet.col_count != len(GOOGLE_SHEET_FIELDS) or worksheet.row_count < target_rows:
+        worksheet.resize(rows=target_rows, cols=len(GOOGLE_SHEET_FIELDS))
+    if migrated_values is not None:
+        worksheet.update(range_name="A1", values=migrated_values)
+    else:
+        worksheet.update(range_name="A1", values=[GOOGLE_SHEET_FIELDS])
     return GOOGLE_SHEET_FIELDS
 
 
@@ -170,6 +282,7 @@ def _tracker_value_for_header(row: dict, header: str) -> str:
     validation_status = row.get("validation_status", "")
 
     sheet_values = {
+        "ats_match_percent": row.get("ats_match_percent", ""),
         "created_at": timestamp,
         "updated_at": timestamp,
         "cv_docx": cv_docx_path,
@@ -246,6 +359,7 @@ def update_application_tracker(
         sync_google_sheets = tracker_path.resolve() == Path(APPLICATION_TRACKER_CSV_PATH).resolve()
 
     row = {
+        "ats_match_percent": _safe_str(validation_report.get("ats_score", "")),
         "timestamp": validation_report.get("timestamp") or datetime.now().isoformat(timespec="seconds"),
         "company": validation_report.get("company", ""),
         "job_title": validation_report.get("job_title", ""),

@@ -195,6 +195,8 @@ def validate_letter_result(
         "location": application_context.get("location", ""),
         "job_url": application_context.get("job_url", ""),
         "job_family": application_context.get("job_family", ""),
+        "ats_score": application_context.get("ats_score"),
+        "ats_final": application_context.get("ats_final", {}),
         "cv_docx_path": application_context.get("cv_docx_path", ""),
         "cv_markdown_path": application_context.get("cv_markdown_path", ""),
         "lm_docx_path": str(lm_docx_path) if status == "success" and lm_docx_path else None,
@@ -220,14 +222,25 @@ def validate_letter_result(
 
 
 def _job_title_is_mentioned(job_title: str, final_letter: str) -> bool:
-    title_words = [word for word in _words(job_title.casefold()) if len(word) > 2]
-    final = final_letter.casefold()
-    if job_title.casefold() in final:
+    title_norm = _normalize_for_title(job_title)
+    final = _normalize_for_title(final_letter)
+    title_words = [word for word in _words(title_norm) if len(word) > 2]
+    if title_norm in final:
         return True
     if not title_words:
         return True
     matched = sum(1 for word in title_words if word in final)
-    return matched >= max(1, min(3, len(title_words)))
+    threshold = 2 if len(title_words) >= 3 else 1
+    return matched >= threshold
+
+
+def _normalize_for_title(text: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", text or "").casefold()
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = re.sub(r"[^a-z0-9+#./ -]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _company_fact_matches(candidate: str, allowed: str) -> bool:

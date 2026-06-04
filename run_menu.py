@@ -26,6 +26,7 @@ from src.application.company_research import (
 )
 from src.application.document_to_markdown import docx_to_markdown
 from src.application.output_pack import create_application_pack
+from src.application.ats_matcher import analyze_ats_match
 from src.config import (
     APPLICATION_CONTEXT_PATH,
     BASE_COVER_LETTER_PATH,
@@ -178,6 +179,7 @@ def _run_cv_only(quiet: bool) -> None:
         cv_path=cv_docx_path,
         mode_label="CV",
         timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
+        ats_score=report.get("ats_score"),
     )
     print()
     print("CV généré.")
@@ -361,6 +363,9 @@ def _build_lm_only_context(
             selected_facts.append(fact)
 
     report = _make_report_from_cv(cv_markdown, company_name, job_title)
+    ats_final = analyze_ats_match(cv_markdown, job_text) if target_text.strip() else {}
+    report["ats_final"] = ats_final
+    report["ats_score"] = ats_final.get("score")
     context = build_application_context(
         parsed_job=parsed_job,
         cv_docx_path=cv_path,
@@ -412,6 +417,7 @@ def _run_lm_only() -> None:
     validation_path = COVER_LETTERS_DIR / f"{artifact_stem}_validation.json"
     failed_output_path = COVER_LETTERS_DIR / f"LM_FAILED_{timestamp}.txt"
     lm_docx_path = COVER_LETTERS_DIR / f"{artifact_stem}.docx"
+    ats_score = application_context.get("ats_score")
 
     try:
         letter_result = parse_letter_result(raw_result)
@@ -441,6 +447,7 @@ def _run_lm_only() -> None:
             failed_output_path=failed_output_path,
             mode_label="LM_REVIEW",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -473,6 +480,7 @@ def _run_lm_only() -> None:
             failed_output_path=failed_output_path,
             mode_label="LM_REVIEW",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -496,6 +504,7 @@ def _run_lm_only() -> None:
             validation_path=validation_path,
             mode_label="LM_NO_DOCX",
             timestamp=timestamp,
+            ats_score=ats_score,
         )
         validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
@@ -515,6 +524,7 @@ def _run_lm_only() -> None:
         validation_path=validation_path,
         mode_label="LM",
         timestamp=timestamp,
+        ats_score=ats_score,
     )
     validation_report["application_pack_path"] = str(pack_path)
     _write_json(validation_path, validation_report)

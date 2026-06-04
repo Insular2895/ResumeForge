@@ -81,6 +81,8 @@ def build_application_context(
         "selected_cv_leadership": report.get("selected_leadership", []),
         "selected_cv_certifications": report.get("selected_certifications", []),
         "selected_cv_technical_skills": report.get("selected_technical_skills", []),
+        "ats_score": report.get("ats_score"),
+        "ats_final": report.get("ats_final", {}),
         "allowed_cv_terms": _extract_terms(cv_markdown, report),
         "allowed_numbers": _extract_numbers(cv_markdown + "\n" + job_description + "\n" + company_facts_text),
         "selected_company_facts": selected_company_facts[:3],

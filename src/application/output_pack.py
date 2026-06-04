@@ -97,10 +97,14 @@ def create_application_pack(
     failed_output_path: str | Path | None = None,
     mode_label: str = "CV_LM",
     timestamp: str | None = None,
+    ats_score: int | None = None,
 ) -> Path:
     company_slug = _safe_name(company, "Entreprise")
     job_slug = _safe_name(job_title, "Poste")
-    readable_stem = f"{company_slug} - {job_slug}"
+    score_prefix = ""
+    if isinstance(ats_score, int):
+        score_prefix = f"{max(0, min(100, ats_score))}% "
+    readable_stem = f"{score_prefix}{company_slug} - {job_slug}"
     pack_name = f"{readable_stem} - {timestamp}" if timestamp else readable_stem
     pack_dir = APPLICATION_PACKS_DIR / pack_name
 

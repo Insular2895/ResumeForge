@@ -8,6 +8,11 @@ import pandas as pd
 
 from src.render.docx_template import DocxTemplateRenderer
 from src.llm.cv_enhancer import improve_full_cv_with_gemini
+from src.application.ats_matcher import (
+    analyze_ats_match,
+    build_job_reference_context,
+    build_resume_ats_text,
+)
 
 
 # ============================================================
@@ -302,7 +307,6 @@ def extract_staffing_client_company(job_text):
     patterns = [
         r"(?i)\b(?:adecco|cabinet|agence)\s+recrute\s+pour\s+son\s+client\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
         r"(?i)\bpour\s+son\s+client\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
-        r"(?i)\bclient\s*:?\s+([A-Z][A-Za-z0-9À-ÿ'&.\- ]{1,60})\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, job_text)
@@ -416,6 +420,8 @@ def looks_like_real_job_title(line):
         return False
 
     title_keywords = [
+        "administration des ventes",
+        "administration",
         "analyst",
         "assistant",
         "associate",
@@ -1217,7 +1223,7 @@ def _context_flags(job_text):
             "seo", "sea", "paid", "roas", "cpm", "cpc", "cac", "publicite",
         ]),
         "web": _contains_any(job_text, [
-            "webflow", "figma", "website", "site web", "ux", "ui", "frontend",
+            "webflow", "figma", "website", "site web", " ux ", " ui ", "frontend",
             "backend", "developer", "developpeur",
         ]),
         "tech": _contains_any(job_text, [
@@ -1247,9 +1253,40 @@ def _context_flags(job_text):
     }
 
 
+def _is_office_context(job_text):
+    return _contains_any(job_text, [
+        "microsoft office",
+        "pack office",
+        "google workspace",
+        "word",
+        "powerpoint",
+        "excel",
+        "outils bureautiques",
+        "bureautique",
+    ])
+
+
+def erp_skills_for_job(job_text):
+    skills = []
+    if _contains_any(job_text, ["erp", "sap", "m3", "navision", "sage", "oracle"]):
+        skills.append("ERP")
+    if _contains_any(job_text, ["sap", "s/4hana", "s4hana"]):
+        skills.append("SAP")
+    if _contains_any(job_text, ["m3"]):
+        skills.append("M3")
+    if _contains_any(job_text, ["sage", "logiciel sage"]):
+        skills.append("Logiciel Sage")
+    if _contains_any(job_text, ["navision", "dynamics"]):
+        skills.append("Navision")
+    if _contains_any(job_text, ["oracle erp", "oracle"]):
+        skills.append("Oracle ERP")
+    return skills
+
+
 def is_skill_allowed_for_job(skill, job_text):
     skill_norm = normalize_text(skill)
     flags = _context_flags(job_text)
+    office_context = _is_office_context(job_text)
 
     web_marketing_terms = [
         "meta_ads",
@@ -1276,6 +1313,16 @@ def is_skill_allowed_for_job(skill, job_text):
 
     if flags["supply"] and not flags["marketing"] and not flags["web"]:
         if any(blocked in skill_norm for blocked in web_marketing_terms):
+            return False
+
+    if office_context and flags["commercial"] and not flags["web"]:
+        if any(blocked in skill_norm for blocked in [
+            "webflow", "figma", "client-first", "client first", "landing page",
+            "seo", "sea", "ux", "ui", "frontend", "backend",
+            "requirements", "recueil des besoins", "acceptance", "criteres d acceptation",
+            "uat", "roadmap", "jalons", "documentation technique", "passation",
+            "optimisation site web", "automatisation",
+        ]):
             return False
 
     if flags["finance"] and not flags["marketing"] and not flags["web"]:
@@ -1315,7 +1362,7 @@ def select_technical_skills(
     skills_df,
     selected_experiences,
     parsed_job,
-    max_skills=8,
+    max_skills=12,
     skills_by_target_df=None,
     claim_rules_df=None,
 ):
@@ -1335,6 +1382,7 @@ def select_technical_skills(
     commercial_context = flags["commercial"]
     retail_context = flags["retail"]
     project_context = flags["project"]
+    office_context = _is_office_context(job_text)
 
     # 1. Skills depuis la feuille skills
     if not skills_df.empty:
@@ -1543,6 +1591,19 @@ def select_technical_skills(
             if score > 0:
                 candidates.append((translate_skill(skill_name), score))
 
+            if office_context:
+                office_boosts = {
+                    "excel": 95,
+                    "microsoft excel": 95,
+                    "spreadsheet": 82,
+                    "sheets": 78,
+                    "reporting": 70,
+                    "tableaux de bord": 65,
+                }
+                for word, weight in office_boosts.items():
+                    if word in searchable or word in skill_norm:
+                        candidates.append((translate_skill(skill_name), score + weight))
+
     # 2. Skills depuis les expériences sélectionnées
     for row in selected_experiences:
         for col in [
@@ -1742,6 +1803,8 @@ def select_technical_skills(
 
     if commercial_context:
         fallback_by_context += [
+            "Excel",
+            "Reporting",
             "Analyse des besoins client",
             "Vente conseil",
             "CRM",
@@ -1753,6 +1816,21 @@ def select_technical_skills(
             "Gestion de portefeuille clients",
             "Relance commerciale structurée",
         ]
+
+    if office_context:
+        fallback_by_context += [
+            "Microsoft Office",
+            "Google Workspace",
+            "Word",
+            "PowerPoint",
+            "Excel",
+            "Reporting",
+            "Suivi des KPI",
+            "Documentation administrative",
+            "Gestion de données clients",
+        ]
+
+    fallback_by_context += erp_skills_for_job(job_text)
 
     if retail_context:
         fallback_by_context += [
@@ -1823,10 +1901,67 @@ def select_technical_skills(
             score_by_skill[key] = (skill, score)
 
     ranked = sorted(score_by_skill.values(), key=lambda x: x[1], reverse=True)
+    preferred_ats_skills = []
+
+    erp_preferred_skills = erp_skills_for_job(job_text)
+    if erp_preferred_skills:
+        for skill in erp_preferred_skills:
+            if is_skill_allowed_for_job(skill, job_text):
+                preferred_ats_skills.append(skill)
+
+    if office_context:
+        for skill in [
+            "Microsoft Office",
+            "Google Workspace",
+            "Word",
+            "PowerPoint",
+            "Excel",
+            "Documentation administrative",
+            "Gestion de données clients",
+            "Reporting",
+            "Service client",
+            "Support client",
+            "Relations clients",
+            "Étiquette téléphonique",
+        ]:
+            if is_skill_allowed_for_job(skill, job_text):
+                preferred_ats_skills.append(skill)
+
+    if _contains_any(job_text, ["publicite", "publicitaire", "campagne", "campagnes"]):
+        for skill in ["Campagnes publicitaires", "Coordination commerciale"]:
+            if is_skill_allowed_for_job(skill, job_text):
+                preferred_ats_skills.append(skill)
+
+    if supply_context:
+        for skill in [
+            "Gestion des commandes",
+            "Suivi des commandes",
+            "EDI",
+            "Référentiel articles clients",
+            "Gestion des litiges",
+            "Facturation",
+            "Suivi des livraisons",
+            "Gestion des stocks",
+        ]:
+            if is_skill_allowed_for_job(skill, job_text):
+                preferred_ats_skills.append(skill)
+
+    if commercial_context:
+        for skill in ["Service client", "Support client", "CRM", "Relance commerciale structurée"]:
+            if is_skill_allowed_for_job(skill, job_text):
+                preferred_ats_skills.append(skill)
 
     if target_skills:
         selected = []
         available = {_skill_key(skill): skill for skill, _ in ranked}
+        for preferred in preferred_ats_skills:
+            key = _skill_key(preferred)
+            skill = available.get(key, preferred)
+            if skill not in selected:
+                selected.append(skill)
+            if len(selected) >= max_skills:
+                return selected
+
         for preferred in target_skills:
             if not is_skill_allowed_for_job(preferred, job_text):
                 continue
@@ -1845,9 +1980,7 @@ def select_technical_skills(
 
     if supply_context and not data_context:
         preferred_supply_order = [
-            "SAP",
-            "SAP EWM",
-            "SAP S/4HANA",
+            *erp_skills_for_job(job_text),
             "Gestion ADV",
             "Gestion export",
             "Gestion import",
@@ -1877,6 +2010,12 @@ def select_technical_skills(
 
     selected = []
 
+    for preferred in preferred_ats_skills:
+        if preferred not in selected:
+            selected.append(preferred)
+        if len(selected) >= max_skills:
+            return selected
+
     for skill, _ in ranked:
         if skill not in selected:
             selected.append(skill)
@@ -1885,6 +2024,59 @@ def select_technical_skills(
             break
 
     return selected
+
+
+ATS_SKILL_LABELS = {
+    "logiciel sage": "Sage",
+    "sage": "Sage",
+    "sap": "SAP",
+    "erp": "ERP",
+    "edi": "EDI",
+    "referentiel": "Référentiel articles clients",
+    "référentiel": "Référentiel articles clients",
+    "referentiel articles clients": "Référentiel articles clients",
+    "stocks": "Gestion des stocks",
+    "litiges": "Gestion des litiges",
+    "livraison": "Suivi des livraisons",
+    "livraisons": "Suivi des livraisons",
+    "gestion des commandes": "Gestion des commandes",
+    "suivi des commandes": "Suivi des commandes",
+    "anglais": "Anglais professionnel",
+    "facturation": "Facturation",
+    "microsoft office": "Microsoft Office",
+    "pack office": "Pack Office",
+    "word": "Word",
+    "powerpoint": "PowerPoint",
+    "excel": "Excel",
+    "service client": "Service client",
+    "support client": "Support client",
+    "relations clients": "Relations clients",
+    "donnees clients": "Gestion de données clients",
+    "documents administratifs": "Documentation administrative",
+}
+
+
+def boost_skills_with_ats_keywords(selected_skills, ats_analysis, job_text, max_skills=14):
+    boosted = list(selected_skills)
+    candidates = []
+    for key in ["priority_keywords", "transferable_keywords", "missing_keywords"]:
+        value = ats_analysis.get(key, [])
+        if isinstance(value, list):
+            candidates.extend(value)
+
+    for keyword in candidates:
+        keyword_norm = normalize_text(keyword)
+        label = ATS_SKILL_LABELS.get(keyword_norm)
+        if not label:
+            continue
+        if not label or not is_skill_allowed_for_job(label, job_text):
+            continue
+        if label not in boosted:
+            boosted.append(label)
+        if len(boosted) >= max_skills:
+            break
+
+    return boosted
 
 
 # ============================================================
@@ -2023,6 +2215,8 @@ def write_last_run_report(
     selected_leadership,
     selected_certifications,
     selected_skills,
+    ats_initial=None,
+    ats_final=None,
 ):
     report = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -2035,6 +2229,9 @@ def write_last_run_report(
         "selected_leadership": [],
         "selected_certifications": selected_certifications,
         "selected_technical_skills": selected_skills,
+        "ats_initial": ats_initial or {},
+        "ats_final": ats_final or {},
+        "ats_score": (ats_final or {}).get("score"),
         "warnings": [],
     }
 
@@ -2070,6 +2267,38 @@ def write_last_run_report(
     )
 
 
+def optimize_cv_with_ats_guard(
+    *,
+    selected_experiences,
+    selected_leadership,
+    selected_certifications,
+    selected_skills,
+    job_text,
+    current_ats,
+):
+    candidate_experiences, candidate_leadership = improve_full_cv_with_gemini(
+        selected_experiences,
+        selected_leadership,
+        job_text,
+        ats_analysis=current_ats,
+    )
+    candidate_text = build_resume_ats_text(
+        experiences=candidate_experiences,
+        leadership=candidate_leadership,
+        certifications=selected_certifications,
+        technical_skills=selected_skills,
+    )
+    candidate_ats = analyze_ats_match(candidate_text, job_text)
+    if candidate_ats.get("score", 0) >= current_ats.get("score", 0):
+        return candidate_experiences, candidate_leadership, candidate_ats
+
+    print(
+        "Passe Gemini ignorée : score ATS candidat "
+        f"{candidate_ats.get('score')}% < score précédent {current_ats.get('score')}%."
+    )
+    return selected_experiences, selected_leadership, current_ats
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -2090,35 +2319,86 @@ def main():
 
     print("Analyse de la job description...")
     parsed_job = parse_job(job_text)
+    job_reference_context = build_job_reference_context(job_text)
+    selection_job_text = job_reference_context.get("enriched_text") or job_text
+    selection_parsed_job = dict(parsed_job)
+    selection_parsed_job["keywords"] = extract_keywords(selection_job_text)
+    selection_parsed_job["normalized_text"] = normalize_text(selection_job_text)
+    if job_reference_context.get("used"):
+        print(
+            "Offre courte détectée : enrichissement métier "
+            f"{job_reference_context.get('label')}."
+        )
 
     print("Sélection des expériences...")
-    selected_exp_rows = select_top_rows(experiences_df, parsed_job, max_rows=2)
+    selected_exp_rows = select_top_rows(experiences_df, selection_parsed_job, max_rows=2)
     selected_exp_rows = sorted(selected_exp_rows, key=get_row_year, reverse=True)
     selected_experiences = [format_experience(row) for row in selected_exp_rows]
 
     print("Sélection du leadership...")
-    selected_lead_rows = select_top_rows(leadership_df, parsed_job, max_rows=1)
+    selected_lead_rows = select_top_rows(leadership_df, selection_parsed_job, max_rows=1)
     selected_leadership = [format_leadership(row) for row in selected_lead_rows]
 
-    print("Optimisation Gemini du CV complet...")
-    selected_experiences, selected_leadership = improve_full_cv_with_gemini(
-        selected_experiences,
-        selected_leadership,
-        job_text,
-    )
-
     print("Sélection des certifications...")
-    selected_certifications = select_certifications(certifications_df, parsed_job, max_certs=2)
+    selected_certifications = select_certifications(certifications_df, selection_parsed_job, max_certs=2)
 
     print("Sélection des compétences techniques...")
     selected_skills = select_technical_skills(
         skills_df,
         selected_exp_rows,
-        parsed_job,
-        max_skills=8,
+        selection_parsed_job,
+        max_skills=12,
         skills_by_target_df=skills_by_target_df,
         claim_rules_df=claim_rules_df,
     )
+
+    initial_ats_text = build_resume_ats_text(
+        experiences=selected_experiences,
+        leadership=selected_leadership,
+        certifications=selected_certifications,
+        technical_skills=selected_skills,
+    )
+    ats_evidence_text = "\n".join(
+        [
+            initial_ats_text,
+            "\n".join(row_search_text(row) for row in selected_exp_rows),
+            "\n".join(row_search_text(row) for row in selected_lead_rows),
+        ]
+    )
+    ats_initial = analyze_ats_match(initial_ats_text, job_text, evidence_text=ats_evidence_text)
+    selected_skills = boost_skills_with_ats_keywords(
+        selected_skills,
+        ats_initial,
+        selection_parsed_job["normalized_text"],
+    )
+    initial_ats_text = build_resume_ats_text(
+        experiences=selected_experiences,
+        leadership=selected_leadership,
+        certifications=selected_certifications,
+        technical_skills=selected_skills,
+    )
+    ats_initial = analyze_ats_match(initial_ats_text, job_text, evidence_text=ats_evidence_text)
+
+    print("Optimisation ATS + Gemini du CV complet...")
+    selected_experiences, selected_leadership, ats_final = optimize_cv_with_ats_guard(
+        selected_experiences=selected_experiences,
+        selected_leadership=selected_leadership,
+        selected_certifications=selected_certifications,
+        selected_skills=selected_skills,
+        job_text=job_text,
+        current_ats=ats_initial,
+    )
+
+    if ats_final.get("score", 0) < 80:
+        print("Deuxième passe ATS + Gemini du CV complet...")
+        selected_experiences, selected_leadership, ats_final = optimize_cv_with_ats_guard(
+            selected_experiences=selected_experiences,
+            selected_leadership=selected_leadership,
+            selected_certifications=selected_certifications,
+            selected_skills=selected_skills,
+            job_text=job_text,
+            current_ats=ats_final,
+        )
 
     replacements = build_replacements(
         selected_experiences,
@@ -2147,6 +2427,8 @@ def main():
 
     print("\nCompétences techniques sélectionnées :")
     print(", ".join(selected_skills))
+    print(f"\nScore ATS initial : {ats_initial.get('score')}%")
+    print(f"Score ATS final : {ats_final.get('score')}%")
 
     print("\nConstruction du CV...")
 
@@ -2171,6 +2453,8 @@ def main():
         selected_leadership=selected_leadership,
         selected_certifications=selected_certifications,
         selected_skills=selected_skills,
+        ats_initial=ats_initial,
+        ats_final=ats_final,
     )
 
     print(f"CV généré : {output_path}")

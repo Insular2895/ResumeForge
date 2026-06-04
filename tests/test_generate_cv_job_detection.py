@@ -86,3 +86,31 @@ def test_parse_job_extracts_adecco_client_from_client_phrase():
     )
 
     assert parsed["company"] == "Safran Aerostystems"
+
+
+def test_parse_job_does_not_treat_generic_client_words_as_staffing_client():
+    parsed = parse_job(
+        """
+        Gestionnaire ADV H/F- job post
+        ARTUS INTERIM CERGY
+        78700 Conflans-Sainte-Honorine
+
+        Réaliser des synthèses de l'évolution de l'activité par Client et Gamme.
+        """
+    )
+
+    assert parsed["company"] == "Artus Interim Cergy"
+    assert parsed["job_title"] == "Gestionnaire ADV"
+
+
+def test_parse_job_recognizes_administration_des_ventes_as_title():
+    parsed = parse_job(
+        """
+        Administration des ventes H/F
+        SML FOOD PLASTIC
+        2 rue du Nouveau Bercy, 94227 Charenton-le-Pont
+        """
+    )
+
+    assert parsed["company"] == "Sml Food Plastic"
+    assert parsed["job_title"] == "Administration des ventes"
