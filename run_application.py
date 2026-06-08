@@ -43,6 +43,7 @@ from src.letter.letter_result_parser import LetterResultParseError, parse_letter
 from src.letter.letter_sanitizer import sanitize_letter_result
 from src.letter.letter_validator import validate_letter_result
 from src.letter.lm_generator import generate_letter_with_gemini
+from src.web import prompt_overrides
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,10 @@ def _read_json(path: str | Path) -> dict:
 
 def _read_text(path: str | Path) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
+
+
+def _load_lm_instructions() -> str:
+    return prompt_overrides.load_effective_lm_instructions(LM_INSTRUCTIONS_MD_PATH)
 
 
 def _write_json(path: str | Path, payload: dict) -> Path:
@@ -202,6 +207,38 @@ def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_p
     print(f"Validation JSON : {validation_path}")
 
 
+def _handle_lm_generation_failure(
+    *,
+    error: Exception,
+    application_context: dict,
+    company_name: str,
+    job_title: str,
+    cv_docx_path: Path,
+    cv_markdown: str,
+    cv_markdown_path: Path,
+    validation_path: Path,
+    timestamp: str,
+    ats_score: int | None,
+) -> dict:
+    reason = f"lm_generation_unavailable: {error}"
+    validation_report = _write_skipped_report(application_context, reason, validation_path)
+    validation_report["errors"] = [str(error)]
+    pack_path = create_application_pack(
+        company=company_name,
+        job_title=job_title,
+        cv_path=cv_docx_path,
+        cv_markdown=cv_markdown,
+        validation_path=validation_path,
+        mode_label="CV_LM_UNAVAILABLE",
+        timestamp=timestamp,
+        ats_score=ats_score,
+    )
+    validation_report["application_pack_path"] = str(pack_path)
+    _update_tracker_safely(validation_report, validation_path)
+    _print_summary(validation_report, validation_path, cv_markdown_path)
+    return validation_report
+
+
 def main(quiet: bool = False) -> None:
     load_dotenv(ENV_PATH)
     COVER_LETTERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -296,11 +333,26 @@ def main(quiet: bool = False) -> None:
     prompt = build_letter_prompt(
         application_context=application_context,
         cv_markdown=cv_markdown,
-        lm_instructions=_read_text(LM_INSTRUCTIONS_MD_PATH),
+        lm_instructions=_load_lm_instructions(),
         lm_template=_read_text(LM_TEMPLATE_MD_PATH),
         lm_demo=_read_text(LM_DEMO_VALIDEE_MD_PATH),
     )
-    raw_result = generate_letter_with_gemini(prompt)
+    try:
+        raw_result = generate_letter_with_gemini(prompt)
+    except Exception as exc:
+        _handle_lm_generation_failure(
+            error=exc,
+            application_context=application_context,
+            company_name=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_docx_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            cv_markdown_path=cv_markdown_path,
+            validation_path=validation_path,
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        return
 
     try:
         letter_result = parse_letter_result(raw_result)

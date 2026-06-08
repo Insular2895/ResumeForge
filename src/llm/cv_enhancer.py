@@ -2,6 +2,7 @@ import json
 from copy import deepcopy
 
 from src.llm.gemini_client import ask_gemini, is_gemini_enabled
+from src.web.prompt_overrides import append_cv_override
 
 
 def clean_json_response(text: str) -> str:
@@ -83,7 +84,7 @@ Contraintes strictes :
 - améliore la clarté, l'impact et la correspondance avec l'offre
 - adopte une logique de marketing-propre pour recruteur humain : valorise les missions avec un vocabulaire corporate, orienté impact, coordination, qualité, délais, client, reporting, sans inventer de faits
 - intègre les mots-clés ATS manquants quand ils renforcent une mission proche
-- si le score initial est inférieur à 80, traite les mots-clés manquants/prioritaires comme une contrainte forte : intègre-en le maximum dans les bullets existants quand c'est crédible
+- si le score initial est inférieur à 70, traite les mots-clés manquants/prioritaires comme une contrainte forte : intègre-en le maximum dans les bullets existants quand c'est crédible
 - privilégie l'intégration des mots-clés métier dans les bullets d'expérience, pas sous forme de liste artificielle
 - chaque expérience doit porter plusieurs mots exacts de l'offre, répartis naturellement dans les bullets
 - adapte l'optimisation à tout type d'offre : ADV, administratif, commercial, finance, marketing, data, projet, retail, support client, supply chain, export/import
@@ -126,6 +127,8 @@ Analyse ATS à prendre en compte :
 CV à optimiser :
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 """
+
+    prompt = append_cv_override(prompt)
 
     try:
         response = ask_gemini(prompt)

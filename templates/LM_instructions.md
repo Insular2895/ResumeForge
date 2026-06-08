@@ -142,6 +142,8 @@ Si aucun fait officiel ne le prouve, rester sobre : parler de la capacite d'appr
 
 Le style doit etre professionnel, direct, naturel, precis, credible, operationnel, ambitieux sans exces, oriente contribution et non generique.
 
+Avant de retourner le JSON, relire integralement `final_letter`. Aucune faute d'orthographe, de grammaire, d'accord, de conjugaison ou de ponctuation n'est acceptable.
+
 ## 8 bis. Formulation ATS et preuves ABC/XYZ
 
 La LM doit rester naturelle, mais les preuves CV doivent etre formulees avec une logique proche de ABC ou XYZ lorsque c'est pertinent.

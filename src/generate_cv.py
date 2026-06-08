@@ -13,6 +13,7 @@ from src.application.ats_matcher import (
     build_job_reference_context,
     build_resume_ats_text,
 )
+from src.letter.french_proofreader import apply_known_french_corrections, check_french_text
 
 
 # ============================================================
@@ -25,6 +26,7 @@ MASTER_PROFILE_PATH = ROOT_DIR / "data" / "reference" / "master_profile.xlsx"
 BASE_CV_TEMPLATE_PATH = ROOT_DIR / "templates" / "base_cv.docx"
 OUTPUT_DIR = ROOT_DIR / "data" / "output"
 CV_OUTPUT_DIR = OUTPUT_DIR / "cv"
+ATS_ACCEPTABLE_SCORE = 70
 
 POSSIBLE_JOB_PATHS = [
     ROOT_DIR / "data" / "input" / "job_description.txt",
@@ -32,6 +34,15 @@ POSSIBLE_JOB_PATHS = [
     ROOT_DIR / "job_description.txt",
     ROOT_DIR / "job.txt",
 ]
+
+
+def ats_match_status(score, threshold=ATS_ACCEPTABLE_SCORE):
+    if score is None:
+        return "unknown"
+    try:
+        return "acceptable" if int(score) >= threshold else "needs_rework"
+    except (TypeError, ValueError):
+        return "unknown"
 
 
 # ============================================================
@@ -106,6 +117,7 @@ def clean_detected_job_title(value):
     if not title:
         return "Poste cible"
 
+    title = apply_known_french_corrections(title)
     title = re.sub(r"(?i)\s*[-–—]?\s*job\s*post\s*$", "", title).strip()
     title = re.sub(r"(?i)\bcharg[ée]\(e\)", "Chargé", title)
     title = re.sub(r"(?i)\bassistant\(e\)", "Assistant", title)
@@ -2232,8 +2244,14 @@ def write_last_run_report(
         "ats_initial": ats_initial or {},
         "ats_final": ats_final or {},
         "ats_score": (ats_final or {}).get("score"),
+        "ats_acceptable_threshold": ATS_ACCEPTABLE_SCORE,
+        "ats_match_status": ats_match_status((ats_final or {}).get("score")),
         "warnings": [],
     }
+    if report["ats_match_status"] == "needs_rework":
+        report["warnings"].append(
+            f"ats_score_below_{ATS_ACCEPTABLE_SCORE}_needs_rework"
+        )
 
     for row, exp in zip(selected_exp_rows, selected_experiences):
         report["selected_experiences"].append(
@@ -2389,7 +2407,7 @@ def main():
         current_ats=ats_initial,
     )
 
-    if ats_final.get("score", 0) < 80:
+    if ats_final.get("score", 0) < ATS_ACCEPTABLE_SCORE:
         print("Deuxième passe ATS + Gemini du CV complet...")
         selected_experiences, selected_leadership, ats_final = optimize_cv_with_ats_guard(
             selected_experiences=selected_experiences,
@@ -2399,6 +2417,38 @@ def main():
             job_text=job_text,
             current_ats=ats_final,
         )
+
+    selected_experiences = apply_known_french_corrections(selected_experiences)
+    selected_leadership = apply_known_french_corrections(selected_leadership)
+    selected_certifications = apply_known_french_corrections(selected_certifications)
+    selected_skills = apply_known_french_corrections(selected_skills)
+
+    cv_language_check = check_french_text(
+        build_resume_ats_text(
+            experiences=selected_experiences,
+            leadership=selected_leadership,
+            certifications=selected_certifications,
+            technical_skills=selected_skills,
+        ),
+        allowed_terms=[
+            selected_certifications,
+            selected_skills,
+            [
+                experience.get("company", "")
+                for experience in selected_experiences
+            ],
+            [
+                leadership.get("org", "")
+                for leadership in selected_leadership
+            ],
+        ],
+    )
+    if cv_language_check["status"] != "success":
+        details = "; ".join(
+            f"{issue['text']} -> {issue['suggestion']}"
+            for issue in cv_language_check["issues"]
+        )
+        raise RuntimeError(f"CV bloqué par le contrôle orthographique : {details}")
 
     replacements = build_replacements(
         selected_experiences,
@@ -2429,6 +2479,10 @@ def main():
     print(", ".join(selected_skills))
     print(f"\nScore ATS initial : {ats_initial.get('score')}%")
     print(f"Score ATS final : {ats_final.get('score')}%")
+    if ats_match_status(ats_final.get("score")) == "acceptable":
+        print(f"Compatibilité ATS : acceptable ({ATS_ACCEPTABLE_SCORE}% à 100%).")
+    else:
+        print(f"Compatibilité ATS : à retravailler (< {ATS_ACCEPTABLE_SCORE}%).")
 
     print("\nConstruction du CV...")
 

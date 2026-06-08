@@ -27,14 +27,20 @@ def test_application_pack_name_can_start_with_ats_score(tmp_path, monkeypatch):
 
     cv_path = tmp_path / "source.docx"
     cv_path.write_bytes(b"fake-docx")
+    lm_path = tmp_path / "letter.docx"
+    lm_path.write_bytes(b"fake-docx")
 
     pack_path = create_application_pack(
         company="Ipsen",
         job_title="Gestionnaire ADV",
         cv_path=cv_path,
         cv_markdown="CV markdown",
+        lm_docx_path=lm_path,
         timestamp="20260604_104500",
         ats_score=99,
     )
 
     assert pack_path.name == "99% Ipsen - Gestionnaire ADV - 20260604_104500"
+    assert (pack_path / "CV - Ipsen - Gestionnaire ADV.docx").exists()
+    assert (pack_path / "LM - Ipsen - Gestionnaire ADV.docx").exists()
+    assert not list(pack_path.glob("*99%*.docx"))

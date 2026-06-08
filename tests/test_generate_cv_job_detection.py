@@ -1,4 +1,11 @@
-from src.generate_cv import build_output_filename, parse_job
+from src.generate_cv import ats_match_status, build_output_filename, parse_job
+
+
+def test_ats_match_status_accepts_70_to_100_and_reworks_below():
+    assert ats_match_status(100) == "acceptable"
+    assert ats_match_status(70) == "acceptable"
+    assert ats_match_status(69) == "needs_rework"
+    assert ats_match_status(None) == "unknown"
 
 
 def test_parse_job_reads_indeed_wanted_for_company_and_cleans_title():
@@ -114,3 +121,16 @@ def test_parse_job_recognizes_administration_des_ventes_as_title():
 
     assert parsed["company"] == "Sml Food Plastic"
     assert parsed["job_title"] == "Administration des ventes"
+
+
+def test_parse_job_corrects_title_typo_without_confusing_company():
+    parsed = parse_job(
+        """
+        Assistant commercial - pubblicité H/F- job post
+        ALENTA
+        Versailles (78)
+        """
+    )
+
+    assert parsed["company"] == "Alenta"
+    assert parsed["job_title"] == "Assistant commercial - publicité"

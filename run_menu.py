@@ -48,6 +48,7 @@ from src.letter.letter_result_parser import LetterResultParseError, parse_letter
 from src.letter.letter_sanitizer import sanitize_letter_result
 from src.letter.letter_validator import validate_letter_result
 from src.letter.lm_generator import generate_letter_with_gemini
+from src.web import prompt_overrides
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -58,6 +59,10 @@ REFERENCE_CV_EXTENSIONS = (".docx", ".md", ".txt")
 
 def _read_text(path: str | Path) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
+
+
+def _load_lm_instructions() -> str:
+    return prompt_overrides.load_effective_lm_instructions(LM_INSTRUCTIONS_MD_PATH)
 
 
 def _write_json(path: str | Path, payload: dict) -> None:
@@ -404,7 +409,7 @@ def _run_lm_only() -> None:
     prompt = build_letter_prompt(
         application_context=application_context,
         cv_markdown=cv_markdown,
-        lm_instructions=_read_text(LM_INSTRUCTIONS_MD_PATH),
+        lm_instructions=_load_lm_instructions(),
         lm_template=_read_text(LM_TEMPLATE_MD_PATH),
         lm_demo=_read_text(LM_DEMO_VALIDEE_MD_PATH),
     )

@@ -77,9 +77,9 @@ def _build_editable_source(
             "",
             "## Note",
             "",
-            "Ce fichier est la source lisible a modifier dans VS Code. "
+            "Ce fichier est la source lisible à modifier dans VS Code. "
             "Les DOCX du pack ne se synchronisent pas automatiquement : "
-            "apres modification ici, il faut regenerer un DOCX propre.",
+            "après modification ici, il faut régénérer un DOCX propre.",
         ]
     )
     return "\n".join(sections).strip() + "\n"
@@ -104,8 +104,9 @@ def create_application_pack(
     score_prefix = ""
     if isinstance(ats_score, int):
         score_prefix = f"{max(0, min(100, ats_score))}% "
-    readable_stem = f"{score_prefix}{company_slug} - {job_slug}"
-    pack_name = f"{readable_stem} - {timestamp}" if timestamp else readable_stem
+    document_stem = f"{company_slug} - {job_slug}"
+    pack_stem = f"{score_prefix}{document_stem}"
+    pack_name = f"{pack_stem} - {timestamp}" if timestamp else pack_stem
     pack_dir = APPLICATION_PACKS_DIR / pack_name
 
     if pack_dir.exists():
@@ -116,13 +117,12 @@ def create_application_pack(
 
     pack_dir.mkdir(parents=True, exist_ok=True)
 
-    stem = readable_stem
     cv_source = Path(cv_path) if cv_path else None
     if cv_source and cv_source.exists() and cv_source.suffix.lower() == ".docx":
-        _copy_if_exists(cv_source, pack_dir / f"CV - {stem}{cv_source.suffix.lower()}")
+        _copy_if_exists(cv_source, pack_dir / f"CV - {document_stem}{cv_source.suffix.lower()}")
 
     cv_md = _ensure_cv_markdown(cv_source, cv_markdown)
-    _copy_if_exists(lm_docx_path, pack_dir / f"LM - {stem}.docx")
+    _copy_if_exists(lm_docx_path, pack_dir / f"LM - {document_stem}.docx")
     _copy_if_exists(validation_path, pack_dir / "validation.json")
     _copy_if_exists(failed_output_path, pack_dir / "LM_a_revoir.txt")
 

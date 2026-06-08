@@ -21,6 +21,7 @@ STRICT_JSON_SCHEMA = {
         "no_fake_experience": True,
         "no_fake_company_fact": True,
         "tone_professional": True,
+        "spelling_and_grammar_checked": True,
         "not_generic": True,
         "no_demo_annotations_in_final_letter": True,
     },
@@ -85,6 +86,7 @@ CONTRAINTE ABSOLUE:
 - Les termes de vague 3 ou 4 absents du CV mais présents dans l'offre peuvent être utilisés comme contraintes du poste.
 - Les termes de vague 3 ou 4 absents du CV et de l'offre peuvent seulement montrer une compréhension prudente du métier.
 - La motivation entreprise doit être plus précise que "organisation reconnue" : utilise les faits autorisés, le vocabulaire officiel et le lien avec le poste.
+- Relis intégralement `final_letter` avant de répondre : aucune faute d'orthographe, de grammaire, d'accord, de conjugaison ou de ponctuation n'est acceptable.
 
 INTERDICTIONS DANS final_letter:
 - markdown
@@ -96,6 +98,7 @@ INTERDICTIONS DANS final_letter:
 - invention d'elements non autorises
 - salutation d'ouverture type "Madame, Monsieur," dans `final_letter`
 - date ou signature dans `final_letter`
+- faute d'orthographe, de grammaire, d'accord, de conjugaison ou de ponctuation
 
 REGLES DE CLASSEMENT DU JSON:
 - `facts_retained`: seulement les faits entreprise sourcés et autorises. Maximum 3.

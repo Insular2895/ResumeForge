@@ -15,6 +15,7 @@ templates/base_cover_letter.docx
 # Fichiers générés
 data/output/
 data/company_profiles/
+data/local_config/
 
 # Environnements Python
 src/.venv/

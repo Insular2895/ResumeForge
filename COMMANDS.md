@@ -1,6 +1,36 @@
 # ResumeForge - Commandes prêtes
 
-## 1. Lancer le menu terminal guidé
+## 1. Installer depuis un clone neuf
+
+```bash
+git clone https://github.com/Insular2895/ResumeForge.git
+cd ResumeForge
+python3 -m venv src/.venv
+src/.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Remplir `.env`, puis ajouter les fichiers privés depuis l'interface locale ou
+manuellement selon les chemins documentés dans `README.md`.
+
+## 2. Lancer l'interface locale
+
+```bash
+src/.venv/bin/python run_web.py
+```
+
+Ouvrir :
+
+```text
+http://127.0.0.1:8765
+```
+
+Arrêter avec `Ctrl+C`.
+
+Une seule génération peut fonctionner à la fois. L'interface bloque les
+doubles clics et refuse les générations simultanées.
+
+## 3. Lancer le menu terminal guidé
 
 ```bash
 src/.venv/bin/python run_menu.py
@@ -30,6 +60,8 @@ poste détecté (ex. ADV -> commandes, facturation, ERP, Incoterms, logistique).
 détaillées restent guidées par leurs propres mots-clés.
 Les passes Gemini sont gardées seulement si elles maintiennent ou améliorent le score ATS :
 une optimisation qui baisse le score est automatiquement ignorée.
+Un score entre `70%` et `100%` est considéré comme acceptable. En dessous de `70%`,
+le CV est marqué à retravailler et le pipeline tente une passe d'optimisation supplémentaire.
 Dans Google Sheets, `ats_match_percent` est la première colonne et les dates restent en
 deuxième colonne (`created_at`).
 La playlist finale commence par le score ATS, par exemple :
@@ -39,6 +71,7 @@ La playlist finale commence par le score ATS, par exemple :
 ```
 
 Les fichiers ATS intermédiaires ne sont pas affichés dans la playlist finale.
+Le score ATS apparaît uniquement dans le nom de la playlist, jamais dans les noms des fichiers CV et LM.
 
 En mode `LM seulement`, le menu utilise un CV de référence séparé :
 
@@ -50,7 +83,7 @@ data/input/reference_cv.txt
 
 S'il n'existe pas encore, le menu demande le chemin de ton CV optimisé et le copie automatiquement dans `data/input/reference_cv.*`. Les runs suivants peuvent réutiliser ce CV sans le redonner.
 
-## 2. Pipeline complet sans menu
+## 4. Pipeline complet sans menu
 
 ```bash
 src/.venv/bin/python run_application.py --quiet
@@ -65,25 +98,25 @@ data/output/cover_letters/LM_...._validation.json
 data/output/applications/95% Entreprise - Poste - timestamp/
 ```
 
-## 3. Pipeline complet avec logs détaillés
+## 5. Pipeline complet avec logs détaillés
 
 ```bash
 src/.venv/bin/python run_application.py
 ```
 
-## 4. Tests
+## 6. Tests
 
 ```bash
 src/.venv/bin/python -m pytest
 ```
 
-## 5. CV seul historique
+## 7. CV seul historique
 
 ```bash
 src/.venv/bin/python run.py
 ```
 
-## 6. Enrichir manuellement la base métier
+## 8. Enrichir manuellement la base métier
 
 Utilise `GEMINI_DOMAIN_API_KEY`.
 
@@ -91,7 +124,7 @@ Utilise `GEMINI_DOMAIN_API_KEY`.
 src/.venv/bin/python scripts/enrich_domain_vocabulary.py
 ```
 
-## 7. Créer le template LM privé depuis l'exemple
+## 9. Créer le template LM privé depuis l'exemple
 
 ```bash
 cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
@@ -99,7 +132,7 @@ cp templates/base_cover_letter_example.docx templates/base_cover_letter.docx
 
 Puis ouvrir `templates/base_cover_letter.docx` dans Word ou LibreOffice.
 
-## 8. Vérifier les fichiers modifiés avant commit
+## 10. Vérifier les fichiers modifiés avant commit
 
 ```bash
 git status --short
@@ -118,7 +151,7 @@ data/company_profiles/
 data/tracker/applications.csv
 ```
 
-## 9. Nettoyer les caches visuels Python
+## 11. Nettoyer les caches visuels Python
 
 ```bash
 find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec rm -rf {} +
@@ -126,7 +159,7 @@ find . -type d \\( -name "__pycache__" -o -name ".pytest_cache" \\) -prune -exec
 
 Les JSON techniques de `data/output/` et le cache `data/company_profiles/` sont masqués dans VS Code par `.vscode/settings.json`.
 
-## 10. Mode VS Code clean
+## 12. Mode VS Code clean
 
 Masque le code, la doc, les templates et les fichiers techniques pour garder seulement l'usage quotidien visible.
 
@@ -139,6 +172,8 @@ path = Path(".vscode/settings.json")
 settings = json.loads(path.read_text(encoding="utf-8"))
 files_exclude = settings.setdefault("files.exclude", {})
 files_exclude.update({
+    "COMMANDS.md": True,
+    "THIRD_PARTY_NOTICES.md": True,
     ".env.example": True,
     ".gitignore": True,
     ".github": True,
@@ -163,11 +198,15 @@ files_exclude.update({
     ".claude": True,
     "credentials": True,
 })
+search_exclude = settings.setdefault("search.exclude", {})
+search_exclude.update({
+    "THIRD_PARTY_NOTICES.md": True,
+})
 path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 ```
 
-## 11. Mode VS Code dev
+## 13. Mode VS Code dev
 
 Réaffiche le code, la doc, les templates et les fichiers techniques.
 
@@ -180,6 +219,8 @@ path = Path(".vscode/settings.json")
 settings = json.loads(path.read_text(encoding="utf-8"))
 files_exclude = settings.setdefault("files.exclude", {})
 for key in [
+    "COMMANDS.md",
+    "THIRD_PARTY_NOTICES.md",
     ".env.example",
     ".gitignore",
     ".github",
@@ -198,6 +239,8 @@ for key in [
     "tests",
 ]:
     files_exclude.pop(key, None)
+search_exclude = settings.setdefault("search.exclude", {})
+search_exclude.pop("THIRD_PARTY_NOTICES.md", None)
 path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 ```

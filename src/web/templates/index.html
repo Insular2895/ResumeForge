@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ResumeForge</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>ResumeForge</h1>
+          <p>Génère un dossier de candidature depuis une offre.</p>
+        </div>
+        <div class="readiness" aria-label="État des références">
+          {% set ready_count = references.values() | selectattr('ready') | list | length %}
+          {{ ready_count }}/{{ references | length }} références prêtes
+        </div>
+      </header>
+
+      {% if error %}
+      <section class="notice error" role="alert">
+        <strong>Génération impossible</strong>
+        <span>{{ error }}</span>
+      </section>
+      {% endif %}
+
+      {% if result %}
+      <section class="notice success">
+        <div>
+          <strong>{{ result.ats_score ~ '%' if result.ats_score is not none else 'Pack prêt' }}</strong>
+          <span>{{ result.company }} · {{ result.job_title }}</span>
+        </div>
+        <a class="button secondary" href="/download/current">Télécharger le pack</a>
+      </section>
+      {% endif %}
+
+      <form id="generation-form" class="generator" action="/generate" method="post">
+        <fieldset>
+          <legend>Documents à générer</legend>
+          <div class="modes">
+            <label><input type="radio" name="mode" value="cv" {% if selected_mode == 'cv' %}checked{% endif %}> CV</label>
+            <label><input type="radio" name="mode" value="cv_lm" {% if not selected_mode or selected_mode == 'cv_lm' %}checked{% endif %}> CV + LM</label>
+            <label><input type="radio" name="mode" value="lm_only" {% if selected_mode == 'lm_only' %}checked{% endif %}> LM seulement</label>
+          </div>
+        </fieldset>
+
+        <label class="field" for="job_text">
+          Offre ou contexte cible
+          <textarea id="job_text" name="job_text" required placeholder="Colle l’offre ici…">{{ job_text or '' }}</textarea>
+        </label>
+
+        <button id="generate-button" class="button primary" type="submit">Générer</button>
+        <div id="generation-progress" class="generation-progress" role="status" aria-live="polite" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span>
+            <strong>Génération en cours…</strong>
+            <small>Une seule génération est autorisée. Attends la fin avant de relancer.</small>
+          </span>
+        </div>
+      </form>
+
+      <details>
+        <summary>Références locales</summary>
+        <div class="details-content">
+          {% for key, reference in references.items() %}
+          <form class="reference-row" action="/references/{{ key }}" method="post" enctype="multipart/form-data">
+            <div>
+              <strong>{{ reference.label }}</strong>
+              <span>
+                {% if reference.ready %}
+                  {{ reference.filename }}
+                {% elif reference.error %}
+                  {{ reference.error }}
+                {% else %}
+                  Fichier manquant
+                {% endif %}
+              </span>
+            </div>
+            <label class="file-control">
+              Choisir
+              <input type="file" name="file" required>
+            </label>
+            <button class="button small" type="submit">Remplacer</button>
+          </form>
+          {% endfor %}
+        </div>
+      </details>
+
+      <details>
+        <summary>Paramètres avancés</summary>
+        <div class="details-content prompts">
+          <form action="/prompts/cv" method="post">
+            <label class="field">
+              Instructions supplémentaires pour l’optimisation CV
+              <textarea name="value" required placeholder="Aucune personnalisation active">{{ cv_prompt }}</textarea>
+            </label>
+            <div class="actions">
+              <button class="button small" type="submit">Enregistrer</button>
+            </div>
+          </form>
+          <form action="/prompts/cv/reset" method="post">
+            <button class="text-button" type="submit">Restaurer le prompt CV d’origine</button>
+          </form>
+
+          <form action="/prompts/lm" method="post">
+            <label class="field">
+              Instructions de rédaction LM
+              <textarea name="value" required placeholder="Aucune personnalisation active">{{ lm_prompt }}</textarea>
+            </label>
+            <div class="actions">
+              <button class="button small" type="submit">Enregistrer</button>
+            </div>
+          </form>
+          <form action="/prompts/lm/reset" method="post">
+            <button class="text-button" type="submit">Restaurer le prompt LM d’origine</button>
+          </form>
+        </div>
+      </details>
+    </main>
+    <script>
+      const form = document.getElementById("generation-form");
+      const button = document.getElementById("generate-button");
+      const progress = document.getElementById("generation-progress");
+
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.submitted === "true") {
+          event.preventDefault();
+          return;
+        }
+
+        form.dataset.submitted = "true";
+        button.disabled = true;
+        button.textContent = "Génération en cours…";
+        progress.hidden = false;
+
+        form.querySelectorAll("input, textarea").forEach((control) => {
+          control.readOnly = true;
+        });
+      });
+    </script>
+  </body>
+</html>

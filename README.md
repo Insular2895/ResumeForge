@@ -121,6 +121,74 @@ Commandes utiles :
 | Tester le projet | `src/.venv/bin/python -m pytest` |
 | Commandes avancées | voir [COMMANDS.md](COMMANDS.md) |
 
+## Interface Locale Optionnelle
+
+L'interface web locale ajoute une page simple au-dessus du pipeline existant.
+Elle ne remplace pas `run_menu.py` et ne publie rien sur Internet.
+
+### Installation depuis un clone neuf
+
+Prérequis :
+
+- Python 3.11 recommandé ;
+- une clé Gemini pour les générations utilisant Gemini ;
+- Word ou LibreOffice uniquement si tu veux modifier les templates DOCX.
+
+```bash
+git clone https://github.com/Insular2895/ResumeForge.git
+cd ResumeForge
+python3 -m venv src/.venv
+src/.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Remplis ensuite les clés nécessaires dans `.env`, puis démarre l'interface :
+
+```bash
+src/.venv/bin/python run_web.py
+```
+
+Puis ouvrir :
+
+```text
+http://127.0.0.1:8765
+```
+
+Au premier lancement, ouvre `Références locales` et ajoute :
+
+- le profil Excel maître ;
+- le template CV Word ;
+- le template LM Word ;
+- un CV de référence si tu utilises `LM seulement`.
+
+L'interface permet :
+
+- de choisir `CV`, `CV + LM` ou `LM seulement` ;
+- de remplacer les références privées locales ;
+- de personnaliser séparément les instructions Gemini CV et LM ;
+- de télécharger le pack courant au format ZIP.
+- de bloquer les doubles clics et toute seconde génération simultanée.
+
+L'interface écoute uniquement sur `127.0.0.1`. Ne lance pas une génération
+depuis le terminal pendant qu'une génération web est en cours, car les deux
+parcours utilisent les mêmes fichiers temporaires.
+
+Pour arrêter l'interface :
+
+```text
+Ctrl+C
+```
+
+Pour mettre à jour une installation existante :
+
+```bash
+git pull
+src/.venv/bin/python -m pip install -r requirements.txt
+```
+
+Si le port `8765` est déjà utilisé, arrête l'ancienne instance avec `Ctrl+C`
+avant de relancer `run_web.py`.
+
 ## Modes De Travail
 
 ### Option 1 - Juste CV

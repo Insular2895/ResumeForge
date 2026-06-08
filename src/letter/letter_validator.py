@@ -6,6 +6,8 @@ from pathlib import Path
 import json
 import re
 
+from src.letter.french_proofreader import check_french_text
+
 
 BANNED_CLICHES = [
     "entreprise dynamique",
@@ -172,6 +174,15 @@ def validate_letter_result(
     if lm_demo and _similarity(final_letter, lm_demo) > 0.72:
         errors.append("copies_demo_too_closely")
 
+    language_check = check_french_text(
+        final_letter,
+        allowed_terms=[application_context, cv_markdown],
+    )
+    for issue in language_check["issues"]:
+        errors.append(
+            f"language_issue: {issue['text']} -> {issue['suggestion']} ({issue['rule']})"
+        )
+
     quality_check = letter_result.get("quality_check", {})
     if isinstance(quality_check, dict):
         for key in [
@@ -196,6 +207,8 @@ def validate_letter_result(
         "job_url": application_context.get("job_url", ""),
         "job_family": application_context.get("job_family", ""),
         "ats_score": application_context.get("ats_score"),
+        "ats_acceptable_threshold": application_context.get("ats_acceptable_threshold"),
+        "ats_match_status": application_context.get("ats_match_status", ""),
         "ats_final": application_context.get("ats_final", {}),
         "cv_docx_path": application_context.get("cv_docx_path", ""),
         "cv_markdown_path": application_context.get("cv_markdown_path", ""),
@@ -208,6 +221,7 @@ def validate_letter_result(
         "used_cv_experiences": letter_result.get("cv_experiences_used", []),
         "used_cv_terms": letter_result.get("cv_technical_terms_reused", []),
         "learning_angle_used": bool(letter_result.get("learning_angle_used", False)),
+        "language_check": language_check,
         "errors": errors,
         "warnings": warnings,
         "timestamp": timestamp,
