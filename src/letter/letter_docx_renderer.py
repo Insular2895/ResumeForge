@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.config import BASE_COVER_LETTER_PATH
+from src.letter.french_proofreader import enforce_french_docx
 from src.render.docx_template import DocxTemplateRenderer
 
 
@@ -51,4 +52,10 @@ def render_letter_docx(
 
     renderer = DocxTemplateRenderer(template_path)
     replacements = build_letter_replacements(application_context, final_letter)
-    return renderer.render(replacements, output_path)
+    rendered_path = renderer.render(replacements, output_path)
+    enforce_french_docx(
+        rendered_path,
+        artifact_label="LM",
+        allowed_terms=[application_context],
+    )
+    return rendered_path

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -98,6 +99,10 @@ def verify_application_pack(mode: str, pack_dir: str | Path) -> dict:
     if not cv_files:
         raise GenerationError("Le CV attendu n'a pas été généré.")
     if mode in {"cv_lm", "lm_only"}:
+        if validation.get("validation_status") == "failed":
+            errors = [str(item) for item in validation.get("errors", []) if str(item).strip()]
+            details = "; ".join(errors[:5]) or "motif non détaillé"
+            raise GenerationError(f"La LM n'a pas passé la validation : {details}")
         if not lm_files:
             raise GenerationError("La LM attendue n'a pas été générée.")
         if validation.get("validation_status") != "success":
@@ -162,6 +167,20 @@ class GenerationService:
             raise GenerationError("La commande s'est terminée sans produire de nouveau pack.")
         return max(candidates, key=lambda path: path.stat().st_mtime)
 
+    @staticmethod
+    def _runner_error(completed: subprocess.CompletedProcess) -> str:
+        output = "\n".join(
+            part.strip()
+            for part in [str(completed.stdout or ""), str(completed.stderr or "")]
+            if part and str(part).strip()
+        )
+        matches = re.findall(r"(?m)^Erreur\s*:\s*(.+)$", output)
+        if matches:
+            return matches[-1].strip()
+        if completed.returncode != 0:
+            return "La génération a échoué. Consulte le terminal local pour le diagnostic."
+        return ""
+
     def run(self, mode: str, job_text: str) -> GenerationResult:
         load_dotenv(self.project_root / ".env")
         validate_mode_request(mode, job_text, self.reference_status_provider(), dict(os.environ))
@@ -181,8 +200,9 @@ class GenerationService:
                 timeout=900,
                 check=False,
             )
-            if completed.returncode != 0:
-                raise GenerationError("La génération a échoué. Consulte le terminal local pour le diagnostic.")
+            runner_error = self._runner_error(completed)
+            if runner_error:
+                raise GenerationError(runner_error)
 
             pack = self._latest_pack_after(started_at)
             verification = verify_application_pack(mode, pack)

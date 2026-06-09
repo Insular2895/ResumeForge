@@ -134,3 +134,17 @@ def test_parse_job_corrects_title_typo_without_confusing_company():
 
     assert parsed["company"] == "Alenta"
     assert parsed["job_title"] == "Assistant commercial - publicité"
+
+
+def test_parse_job_prefers_ampersand_brand_over_postal_location():
+    parsed = parse_job(
+        """
+        Assistant ADV - Facturation Anglais H/F- job post
+        Talents ADV & Supply
+        91120 Palaiseau
+
+        TALENTS ADV-SUPPLY, cabinet de recrutement national spécialisé.
+        """
+    )
+
+    assert parsed["company"] == "Talents ADV & Supply"

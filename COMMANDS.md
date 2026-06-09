@@ -25,10 +25,31 @@ Ouvrir :
 http://127.0.0.1:8765
 ```
 
+Ou ouvrir directement le site depuis un second terminal :
+
+```bash
+open http://127.0.0.1:8765
+```
+
 Arrêter avec `Ctrl+C`.
 
 Une seule génération peut fonctionner à la fois. L'interface bloque les
 doubles clics et refuse les générations simultanées.
+
+Si le terminal affiche `address already in use`, le site est normalement déjà
+lancé. Ouvre simplement l'URL ci-dessus. Pour forcer un redémarrage :
+
+```bash
+lsof -ti :8765 | xargs kill
+src/.venv/bin/python run_web.py
+```
+
+Chaque CV et LM passe par un contrôle linguistique obligatoire avant puis
+après le rendu DOCX. Le contrôle final lit aussi les en-têtes, pieds de page,
+zones de texte, notes et commentaires. Si une anomalie est détectée, le DOCX
+est supprimé et la génération est bloquée afin qu'il ne soit jamais ajouté au
+pack. Le correcteur réduit fortement le risque de faute, sans pouvoir garantir
+mathématiquement l'absence de toute erreur grammaticale ou contextuelle.
 
 ## 3. Lancer le menu terminal guidé
 

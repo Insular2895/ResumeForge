@@ -55,7 +55,9 @@ def _numbers(text: str) -> set[str]:
 
 
 def _has_markdown(text: str) -> bool:
-    return bool(re.search(r"(^|\n)\s{0,3}(#{1,6}\s|[-*]\s+|\d+\.\s+|>\s+|```)", text or ""))
+    return "*" in (text or "") or bool(
+        re.search(r"(^|\n)\s{0,3}(#{1,6}\s|[-*]\s+|\d+\.\s+|>\s+|```)", text or "")
+    )
 
 
 def _contains_annotation(text: str) -> bool:

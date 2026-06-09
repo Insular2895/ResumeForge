@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+from pathlib import Path
 import re
+import tempfile
 import unicodedata
+from xml.etree import ElementTree
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
 COMMON_TYPO_CORRECTIONS = {
@@ -41,7 +45,13 @@ def apply_known_french_corrections(value):
     if not isinstance(value, str):
         return value
 
-    corrected = value
+    corrected = _apply_safe_text_corrections(value)
+    corrected = re.sub(r"[ \t]{2,}", " ", corrected)
+    return corrected
+
+
+def _apply_safe_text_corrections(value: str) -> str:
+    corrected = value.replace("*", "")
     for typo, replacement in COMMON_TYPO_CORRECTIONS.items():
         corrected = re.sub(
             rf"\b{re.escape(typo)}\b",
@@ -50,7 +60,6 @@ def apply_known_french_corrections(value):
             flags=re.IGNORECASE,
         )
     corrected = re.sub(r"\s+,", ",", corrected)
-    corrected = re.sub(r"[ \t]{2,}", " ", corrected)
     return corrected
 
 
@@ -63,6 +72,67 @@ def check_french_text(text: str, allowed_terms=()) -> dict:
         "language": "fr",
         "issues": issues,
     }
+
+
+def enforce_french_docx(
+    docx_path: str | Path,
+    *,
+    artifact_label: str,
+    allowed_terms=(),
+) -> dict:
+    path = Path(docx_path)
+    _apply_safe_docx_corrections(path)
+    report = check_french_text(_extract_docx_text(path), allowed_terms=allowed_terms)
+    if report["status"] == "success":
+        return report
+
+    path.unlink(missing_ok=True)
+    details = "; ".join(
+        f"{issue['text']} -> {issue['suggestion']} ({issue['rule']})"
+        for issue in report["issues"]
+    )
+    adjective = "bloquée" if artifact_label.casefold() == "lm" else "bloqué"
+    raise RuntimeError(
+        f"{artifact_label} {adjective} par le contrôle linguistique final : {details}"
+    )
+
+
+def _apply_safe_docx_corrections(path: Path) -> None:
+    document_parts = re.compile(
+        r"^word/(?:document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$"
+    )
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+
+    try:
+        with ZipFile(path) as source, ZipFile(temporary_path, "w", ZIP_DEFLATED) as destination:
+            for info in source.infolist():
+                content = source.read(info.filename)
+                if document_parts.match(info.filename):
+                    text = content.decode("utf-8")
+                    content = _apply_safe_text_corrections(text).encode("utf-8")
+                destination.writestr(info, content)
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _extract_docx_text(path: Path) -> str:
+    document_parts = re.compile(
+        r"^word/(?:document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$"
+    )
+    text_nodes: list[str] = []
+    with ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not document_parts.match(name):
+                continue
+            root = ElementTree.fromstring(archive.read(name))
+            text_nodes.extend(
+                node.text
+                for node in root.iter()
+                if node.tag.endswith("}t") and node.text
+            )
+    return "\n".join(text_nodes)
 
 
 def _known_typo_issues(text: str) -> list[dict]:

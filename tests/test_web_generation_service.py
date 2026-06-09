@@ -83,6 +83,17 @@ def test_verify_application_pack_rejects_partial_cv_lm_success(tmp_path):
         verify_application_pack("cv_lm", pack)
 
 
+def test_verify_application_pack_surfaces_validation_errors(tmp_path):
+    pack = _pack(tmp_path, lm=False, validation_status="failed")
+    validation_path = pack / "validation.json"
+    validation = json.loads(validation_path.read_text(encoding="utf-8"))
+    validation["errors"] = ["company_not_mentioned"]
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+
+    with pytest.raises(GenerationError, match="company_not_mentioned"):
+        verify_application_pack("cv_lm", pack)
+
+
 def test_generation_service_rejects_concurrent_web_run(tmp_path):
     entered = threading.Event()
     release = threading.Event()
@@ -131,3 +142,24 @@ def test_generation_service_uses_current_python_interpreter(tmp_path):
     service.run("cv", "Offre")
 
     assert captured["args"][0] == sys.executable
+
+
+def test_generation_service_surfaces_menu_error_when_no_pack_is_created(tmp_path):
+    def failed_runner(**kwargs):
+        return subprocess.CompletedProcess(
+            args=kwargs["args"],
+            returncode=0,
+            stdout="\nErreur : CV bloqué par le contrôle linguistique final : hortograffe\n",
+            stderr="",
+        )
+
+    service = GenerationService(
+        project_root=tmp_path,
+        packs_dir=tmp_path / "packs",
+        current_result_dir=tmp_path / "current",
+        runner=failed_runner,
+    )
+    service.reference_status_provider = lambda: _statuses("master_profile", "cv_template")
+
+    with pytest.raises(GenerationError, match="hortograffe"):
+        service.run("cv", "Offre")

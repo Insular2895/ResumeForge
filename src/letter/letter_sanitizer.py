@@ -7,6 +7,7 @@ def sanitize_letter_result(letter_result: dict, cv_markdown: str) -> dict:
     """Normalize common model slips before deterministic validation."""
     sanitized = dict(letter_result)
     final_letter = str(sanitized.get("final_letter", "") or "")
+    final_letter = final_letter.replace("*", "")
     final_letter = _replace_mastery_phrasing(final_letter)
     final_letter = _replace_absent_tool_claims(final_letter, sanitized, cv_markdown)
     sanitized["final_letter"] = final_letter.strip()

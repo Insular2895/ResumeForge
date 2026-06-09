@@ -94,3 +94,13 @@ def test_validator_rejects_spelling_error():
 
     assert report["validation_status"] == "failed"
     assert any(error.startswith("language_issue: motivassion") for error in report["errors"])
+
+
+def test_validator_rejects_inline_markdown_asterisks():
+    result = _valid_result()
+    result["final_letter"] = result["final_letter"].replace("motivation", "**motivation**")
+
+    report = validate_letter_result(result, _context(), cv_markdown="Blurry\nSAP\n12 partenaires")
+
+    assert report["validation_status"] == "failed"
+    assert "contains_markdown" in report["errors"]

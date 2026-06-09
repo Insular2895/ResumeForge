@@ -26,6 +26,18 @@ def test_sanitizer_replaces_mastery_and_absent_sap_ewm_claims():
     assert sanitized["cv_technical_terms_reused"] == ["SAP"]
 
 
+def test_sanitizer_removes_inline_markdown_asterisks():
+    result = {
+        "final_letter": "Je souhaite rejoindre **Ipsen** pour *contribuer* efficacement.",
+        "cv_technical_terms_reused": [],
+    }
+
+    sanitized = sanitize_letter_result(result, cv_markdown="")
+
+    assert sanitized["final_letter"] == "Je souhaite rejoindre Ipsen pour contribuer efficacement."
+    assert "*" not in sanitized["final_letter"]
+
+
 def test_validator_accepts_letters_up_to_450_words():
     final_letter = " ".join(["Ipsen Coordinateur ADV Import-Export Blurry SAP"] * 70)
     result = {

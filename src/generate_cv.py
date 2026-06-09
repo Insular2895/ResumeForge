@@ -13,7 +13,11 @@ from src.application.ats_matcher import (
     build_job_reference_context,
     build_resume_ats_text,
 )
-from src.letter.french_proofreader import apply_known_french_corrections, check_french_text
+from src.letter.french_proofreader import (
+    apply_known_french_corrections,
+    check_french_text,
+    enforce_french_docx,
+)
 
 
 # ============================================================
@@ -337,9 +341,11 @@ def extract_company_from_job_board_header(lines):
             if looks_like_header_company(candidate):
                 return candidate
 
-    for line in lines[:8]:
+    for index, line in enumerate(lines[:8]):
         cleaned = clean_detected_company(line)
         title = clean_detected_job_title(cleaned)
+        if index in {1, 2} and "&" in cleaned and looks_like_header_company(cleaned):
+            return cleaned
         if looks_like_real_job_title(title):
             continue
         if looks_like_header_company(cleaned):
@@ -374,6 +380,8 @@ def looks_like_header_company(value):
     if any(fragment in lowered for fragment in forbidden):
         return False
     if re.search(r"\d{2,3}\s?000|€|\([0-9]{2}\)", company):
+        return False
+    if re.match(r"^\d{5}\s+\D", company):
         return False
     if len(company.split()) > 5:
         return False
@@ -2497,6 +2505,18 @@ def main():
 
     if not output_path.exists():
         raise RuntimeError(f"Le fichier n'a pas été généré : {output_path}")
+
+    enforce_french_docx(
+        output_path,
+        artifact_label="CV",
+        allowed_terms=[
+            parsed_job,
+            selected_certifications,
+            selected_skills,
+            [experience.get("company", "") for experience in selected_experiences],
+            [leadership.get("org", "") for leadership in selected_leadership],
+        ],
+    )
 
     write_last_run_report(
         parsed_job=parsed_job,
