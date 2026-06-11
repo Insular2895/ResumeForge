@@ -44,10 +44,11 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 Commande principale :
 
 ```bash
-src/.venv/bin/python run_menu.py
+src/.venv/bin/python run_web.py
 ```
 
-Le menu guide les trois usages courants : CV seul, CV + LM, ou LM seulement. Sorties attendues :
+Ouvre ensuite `http://127.0.0.1:8765` dans ton navigateur. L'interface guide
+les trois usages courants : CV seul, CV + LM, ou LM seulement. Sorties attendues :
 
 ```text
 data/output/
@@ -99,32 +100,49 @@ La validation bloque l'export DOCX si la LM contient un élément inventé : chi
 
 ## Commandes
 
-Commande normale :
+### Utilisation quotidienne avec l'interface web
+
+Lancer le serveur local :
 
 ```bash
-src/.venv/bin/python run_menu.py
+src/.venv/bin/python run_web.py
 ```
 
-Le menu propose :
+Puis ouvrir l'interface dans un second terminal :
 
-```text
-1 - Juste CV
-2 - CV + LM
-3 - LM seulement
+```bash
+open http://127.0.0.1:8765
+```
+
+Pour arrêter le serveur, utilise `Ctrl+C` dans son terminal. Pour le couper
+depuis n'importe quel terminal :
+
+```bash
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
+```
+
+Redémarrer complètement l'interface :
+
+```bash
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
+src/.venv/bin/python run_web.py
 ```
 
 Commandes utiles :
 
 | Besoin | Commande |
 |---|---|
-| Usage quotidien | `src/.venv/bin/python run_menu.py` |
+| Lancer l'interface web | `src/.venv/bin/python run_web.py` |
+| Ouvrir l'interface | `open http://127.0.0.1:8765` |
+| Utiliser le menu terminal historique | `src/.venv/bin/python run_menu.py` |
 | Tester le projet | `src/.venv/bin/python -m pytest` |
 | Commandes avancées | voir [COMMANDS.md](COMMANDS.md) |
 
-## Interface Locale Optionnelle
+## Interface Web Locale
 
 L'interface web locale ajoute une page simple au-dessus du pipeline existant.
-Elle ne remplace pas `run_menu.py` et ne publie rien sur Internet.
+Elle constitue le parcours utilisateur recommandé et ne publie rien sur Internet.
+Le menu historique `run_menu.py` reste disponible pour un usage en terminal.
 
 ### Installation depuis un clone neuf
 
@@ -175,7 +193,7 @@ parcours utilisent les mêmes fichiers temporaires.
 
 Pour arrêter l'interface :
 
-```text
+```bash
 Ctrl+C
 ```
 
@@ -184,9 +202,11 @@ Pour mettre à jour une installation existante :
 ```bash
 git pull
 src/.venv/bin/python -m pip install -r requirements.txt
+src/.venv/bin/python run_web.py
 ```
 
-Si le port `8765` est déjà utilisé, arrête l'ancienne instance avec `Ctrl+C`
+Si le port `8765` est déjà utilisé, l'interface est probablement déjà lancée.
+Ouvre `http://127.0.0.1:8765` ou utilise la commande d'arrêt documentée plus haut
 avant de relancer `run_web.py`.
 
 ## Modes De Travail
