@@ -39,6 +39,8 @@ def normalize_company(raw_name: str) -> tuple[str, str]:
     words = [word for word in re.split(r"[\s,]+", clean) if word]
     display_words = [word for word in words if word.lower() not in LEGAL_SUFFIXES]
     display = " ".join(display_words).strip() or clean
+    if display.isupper() and len(display) > 3:
+        display = display.title()
     return display, slugify(display)
 
 
@@ -209,7 +211,11 @@ def extract_company_facts_from_job_description(company_name: str, job_text: str)
         ),
         (
             "L'offre décrit un environnement fondé sur la confiance, l'ownership et la collaboration.",
-            ["trust, ownership, and collaboration", "trust", "ownership", "collaboration"],
+            [
+                "trust, ownership, and collaboration",
+                "trust, ownership and collaboration",
+                "confiance, ownership et collaboration",
+            ],
             "culture",
         ),
         (

@@ -17,6 +17,8 @@
     "cv-tailor.code-workspace": true,
     "data/output/.gitkeep": true,
     "data/output/*.json": true,
+    "data/output/cv": true,
+    "data/output/cover_letters": true,
     "data/company_profiles": true,
     "data/.claude": true,
     "docs": true,
@@ -25,6 +27,7 @@
     "requirements.txt": true,
     "run.py": true,
     "run_application.py": true,
+    "run_menu.py": true,
     "scripts": true,
     "src": true,
     "templates": true,
@@ -38,5 +41,7 @@
     "data/output": true,
     "data/company_profiles": true,
     "credentials": true
-  }
+  },
+  "explorer.excludeGitIgnore": false,
+  "snyk.advanced.autoSelectOrganization": true
 }

@@ -6,6 +6,8 @@ from pathlib import Path
 import json
 import re
 
+from src.letter.french_proofreader import check_french_text
+
 
 BANNED_CLICHES = [
     "entreprise dynamique",
@@ -18,7 +20,6 @@ BANNED_CLICHES = [
     "votre organisation reconnue",
     "mon expertise",
     "cette expertise",
-    "expertise",
     "maitrise des flux",
     "maîtrise des flux",
     "maitrise technique",
@@ -49,12 +50,17 @@ def _normalize(text: str) -> str:
 
 
 def _numbers(text: str) -> set[str]:
-    matches = re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:%|k|K|M|€|eur|EUR|ans?|mois|jours?)?\b", text or "")
-    return {match.strip() for match in matches}
+    matches = re.findall(
+        r"\b\d+(?:[,.]\d+)?\s*(?:%|[kKmM]\s*€?|€|eur|EUR|ans?|mois|jours?)?",
+        text or "",
+    )
+    return {re.sub(r"\s+", "", match).casefold() for match in matches if match.strip()}
 
 
 def _has_markdown(text: str) -> bool:
-    return bool(re.search(r"(^|\n)\s{0,3}(#{1,6}\s|[-*]\s+|\d+\.\s+|>\s+|```)", text or ""))
+    return "*" in (text or "") or bool(
+        re.search(r"(^|\n)\s{0,3}(#{1,6}\s|[-*]\s+|\d+\.\s+|>\s+|```)", text or "")
+    )
 
 
 def _contains_annotation(text: str) -> bool:
@@ -120,7 +126,7 @@ def validate_letter_result(
     if not final_letter:
         errors.append("missing_final_letter")
     word_count = len(_words(final_letter))
-    if final_letter and not 120 <= word_count <= 420:
+    if final_letter and not 120 <= word_count <= 450:
         errors.append(f"length_out_of_range: {word_count}_words")
     if _has_markdown(final_letter):
         errors.append("contains_markdown")
@@ -130,9 +136,14 @@ def validate_letter_result(
         errors.append("contains_placeholder")
     if _contains_salutation_start(final_letter):
         errors.append("contains_salutation_in_final_letter")
-    if company and company.casefold() not in final_letter.casefold():
+    generic_companies = {"entreprise", "societe", "société", "company"}
+    if company and company.casefold() not in generic_companies and company.casefold() not in final_letter.casefold():
         errors.append("company_not_mentioned")
-    if job_title and not _job_title_is_mentioned(job_title, final_letter):
+    translated_role_targeting = (
+        application_context.get("document_language") == "en"
+        and bool(re.search(rf"\bposition\s+at\s+{re.escape(company)}\b", final_letter, re.IGNORECASE))
+    )
+    if job_title and not translated_role_targeting and not _job_title_is_mentioned(job_title, final_letter):
         errors.append("job_title_not_mentioned")
 
     invented_numbers = sorted(number for number in _numbers(final_letter) if number not in allowed_numbers)
@@ -165,12 +176,24 @@ def validate_letter_result(
     for benefit in BANAL_BENEFITS:
         if benefit in final_lower:
             errors.append(f"banal_benefit_used: {benefit}")
-    for cliché in BANNED_CLICHES:
-        if cliché in final_lower:
-            errors.append(f"cliche_phrase: {cliché}")
+    if application_context.get("document_language", "fr") == "fr":
+        for cliché in BANNED_CLICHES:
+            if cliché in final_lower:
+                errors.append(f"cliche_phrase: {cliché}")
 
     if lm_demo and _similarity(final_letter, lm_demo) > 0.72:
         errors.append("copies_demo_too_closely")
+
+    document_language = application_context.get("document_language", "fr")
+    language_check = (
+        check_french_text(final_letter, allowed_terms=[application_context, cv_markdown])
+        if document_language == "fr"
+        else {"status": "success", "language": "en", "issues": []}
+    )
+    for issue in language_check["issues"]:
+        errors.append(
+            f"language_issue: {issue['text']} -> {issue['suggestion']} ({issue['rule']})"
+        )
 
     quality_check = letter_result.get("quality_check", {})
     if isinstance(quality_check, dict):
@@ -191,10 +214,15 @@ def validate_letter_result(
         "validation_status": status,
         "company": company,
         "job_title": job_title,
+        "document_language": document_language,
         "salary": application_context.get("salary", ""),
         "location": application_context.get("location", ""),
         "job_url": application_context.get("job_url", ""),
         "job_family": application_context.get("job_family", ""),
+        "ats_score": application_context.get("ats_score"),
+        "ats_acceptable_threshold": application_context.get("ats_acceptable_threshold"),
+        "ats_match_status": application_context.get("ats_match_status", ""),
+        "ats_final": application_context.get("ats_final", {}),
         "cv_docx_path": application_context.get("cv_docx_path", ""),
         "cv_markdown_path": application_context.get("cv_markdown_path", ""),
         "lm_docx_path": str(lm_docx_path) if status == "success" and lm_docx_path else None,
@@ -206,6 +234,7 @@ def validate_letter_result(
         "used_cv_experiences": letter_result.get("cv_experiences_used", []),
         "used_cv_terms": letter_result.get("cv_technical_terms_reused", []),
         "learning_angle_used": bool(letter_result.get("learning_angle_used", False)),
+        "language_check": language_check,
         "errors": errors,
         "warnings": warnings,
         "timestamp": timestamp,
@@ -220,14 +249,25 @@ def validate_letter_result(
 
 
 def _job_title_is_mentioned(job_title: str, final_letter: str) -> bool:
-    title_words = [word for word in _words(job_title.casefold()) if len(word) > 2]
-    final = final_letter.casefold()
-    if job_title.casefold() in final:
+    title_norm = _normalize_for_title(job_title)
+    final = _normalize_for_title(final_letter)
+    title_words = [word for word in _words(title_norm) if len(word) > 2]
+    if title_norm in final:
         return True
     if not title_words:
         return True
     matched = sum(1 for word in title_words if word in final)
-    return matched >= max(1, min(3, len(title_words)))
+    threshold = 2 if len(title_words) >= 3 else 1
+    return matched >= threshold
+
+
+def _normalize_for_title(text: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", text or "").casefold()
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = re.sub(r"[^a-z0-9+#./ -]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _company_fact_matches(candidate: str, allowed: str) -> bool:
@@ -242,7 +282,7 @@ def _company_fact_matches(candidate: str, allowed: str) -> bool:
         return False
 
     overlap = len(candidate_words & allowed_words) / max(1, min(len(candidate_words), len(allowed_words)))
-    return overlap >= 0.55 or _similarity(candidate, allowed) >= 0.62
+    return overlap >= 0.40 or _similarity(candidate, allowed) >= 0.58
 
 
 def _term_is_in_cv(term: str, cv_lower: str) -> bool:

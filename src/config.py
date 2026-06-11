@@ -19,6 +19,7 @@ INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 CV_OUTPUT_DIR = OUTPUT_DIR / "cv"
 COVER_LETTERS_DIR = OUTPUT_DIR / "cover_letters"
+APPLICATION_PACKS_DIR = OUTPUT_DIR / "applications"
 COMPANY_PROFILES_DIR = DATA_DIR / "company_profiles"
 TRACKER_DIR = DATA_DIR / "tracker"
 
@@ -78,6 +79,7 @@ def ensure_project_directories():
         OUTPUT_DIR,
         CV_OUTPUT_DIR,
         COVER_LETTERS_DIR,
+        APPLICATION_PACKS_DIR,
         COMPANY_PROFILES_DIR,
         TRACKER_DIR,
         TEMPLATES_DIR,

@@ -21,6 +21,8 @@ from src.application.company_research import (
     slugify,
 )
 from src.application.cv_markdown_exporter import export_cv_markdown
+from src.application.output_pack import create_application_pack
+from src.application.ats_matcher import analyze_ats_match
 from src.config import (
     APPLICATION_CONTEXT_PATH,
     BASE_COVER_LETTER_PATH,
@@ -34,11 +36,14 @@ from src.config import (
     OUTPUT_DIR,
 )
 from src.generate_cv import load_job_description, main as generate_cv, parse_job
+from src.parsers.job_parser import parse_job_description
 from src.letter.letter_docx_renderer import render_letter_docx
 from src.letter.letter_prompt_builder import build_letter_prompt
 from src.letter.letter_result_parser import LetterResultParseError, parse_letter_result, save_letter_result
+from src.letter.letter_sanitizer import sanitize_letter_result
 from src.letter.letter_validator import validate_letter_result
 from src.letter.lm_generator import generate_letter_with_gemini
+from src.web import prompt_overrides
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -51,6 +56,10 @@ def _read_json(path: str | Path) -> dict:
 
 def _read_text(path: str | Path) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
+
+
+def _load_lm_instructions() -> str:
+    return prompt_overrides.load_effective_lm_instructions(LM_INSTRUCTIONS_MD_PATH)
 
 
 def _write_json(path: str | Path, payload: dict) -> Path:
@@ -83,6 +92,24 @@ def _repair_parsed_job(parsed_job: dict, job_text: str) -> dict:
     return repaired
 
 
+def _merge_job_metadata(parsed_job: dict, job_text: str) -> dict:
+    """Add metadata handled by the richer parser without overriding CV targeting."""
+    enriched = dict(parsed_job)
+    details = parse_job_description(job_text)
+    for key in [
+        "salary",
+        "location",
+        "contract_type",
+        "seniority",
+        "job_family",
+        "secondary_job_families",
+    ]:
+        value = details.get(key)
+        if value and not enriched.get(key):
+            enriched[key] = value
+    return enriched
+
+
 def _artifact_stem(company: str, job_title: str, timestamp: str) -> str:
     return f"LM_{slugify(company)}_{slugify(job_title, 'poste_cible')}_{timestamp}"
 
@@ -98,6 +125,8 @@ def _write_skipped_report(application_context: dict, reason: str, validation_pat
         "location": application_context.get("location", ""),
         "job_url": application_context.get("job_url", ""),
         "job_family": application_context.get("job_family", ""),
+        "ats_score": application_context.get("ats_score"),
+        "ats_final": application_context.get("ats_final", {}),
         "cv_docx_path": application_context.get("cv_docx_path", ""),
         "cv_markdown_path": application_context.get("cv_markdown_path", ""),
         "lm_docx_path": None,
@@ -161,6 +190,8 @@ def _cleanup_success_markdown(cv_markdown_path: Path, validation_report: dict) -
 def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_path: Path) -> None:
     print("Pipeline candidature terminé.")
     print(f"Statut validation : {validation_report.get('validation_status')}")
+    if validation_report.get("ats_score") is not None:
+        print(f"Score ATS final : {validation_report.get('ats_score')}%")
     print(f"CV DOCX : {validation_report.get('cv_docx_path')}")
     if cv_markdown_path.exists():
         print(f"CV Markdown temporaire : {cv_markdown_path}")
@@ -169,9 +200,43 @@ def _print_summary(validation_report: dict, validation_path: Path, cv_markdown_p
     print(f"application_context.json : {APPLICATION_CONTEXT_PATH}")
     if validation_report.get("lm_docx_path"):
         print(f"LM DOCX : {validation_report.get('lm_docx_path')}")
+    if validation_report.get("application_pack_path"):
+        print(f"Pack candidature : {validation_report.get('application_pack_path')}")
     if validation_report.get("failed_output_path"):
         print(f"LM failed txt : {validation_report.get('failed_output_path')}")
     print(f"Validation JSON : {validation_path}")
+
+
+def _handle_lm_generation_failure(
+    *,
+    error: Exception,
+    application_context: dict,
+    company_name: str,
+    job_title: str,
+    cv_docx_path: Path,
+    cv_markdown: str,
+    cv_markdown_path: Path,
+    validation_path: Path,
+    timestamp: str,
+    ats_score: int | None,
+) -> dict:
+    reason = f"lm_generation_unavailable: {error}"
+    validation_report = _write_skipped_report(application_context, reason, validation_path)
+    validation_report["errors"] = [str(error)]
+    pack_path = create_application_pack(
+        company=company_name,
+        job_title=job_title,
+        cv_path=cv_docx_path,
+        cv_markdown=cv_markdown,
+        validation_path=validation_path,
+        mode_label="CV_LM_UNAVAILABLE",
+        timestamp=timestamp,
+        ats_score=ats_score,
+    )
+    validation_report["application_pack_path"] = str(pack_path)
+    _update_tracker_safely(validation_report, validation_path)
+    _print_summary(validation_report, validation_path, cv_markdown_path)
+    return validation_report
 
 
 def main(quiet: bool = False) -> None:
@@ -193,7 +258,12 @@ def main(quiet: bool = False) -> None:
         print(f"CV Markdown genere : {cv_markdown_path}")
 
     job_text = load_job_description() if JOB_DESCRIPTION_PATH.exists() else report.get("job_description", "")
+    ats_final = analyze_ats_match(cv_markdown, job_text) if job_text.strip() else report.get("ats_final", {})
+    report["ats_final"] = ats_final
+    report["ats_score"] = ats_final.get("score")
+    _write_json(LAST_RUN_REPORT_PATH, report)
     parsed_job = parse_job(job_text)
+    parsed_job = _merge_job_metadata(parsed_job, job_text)
     parsed_job = _repair_parsed_job(parsed_job, job_text)
     if report.get("company_detected"):
         parsed_job["company"] = _repair_parsed_job({"company": report["company_detected"], "job_title": parsed_job.get("job_title", "")}, job_text)["company"]
@@ -234,6 +304,7 @@ def main(quiet: bool = False) -> None:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     artifact_stem = _artifact_stem(company_name, parsed_job.get("job_title", "Poste cible"), timestamp)
+    ats_score = report.get("ats_score")
     validation_path = COVER_LETTERS_DIR / f"{artifact_stem}_validation.json"
     failed_output_path = COVER_LETTERS_DIR / f"LM_FAILED_{timestamp}.txt"
     lm_docx_path = COVER_LETTERS_DIR / f"{artifact_stem}.docx"
@@ -242,6 +313,18 @@ def main(quiet: bool = False) -> None:
         if not quiet:
             print("GEMINI_LETTER_API_KEY absente - LM ignoree proprement.")
         validation_report = _write_skipped_report(application_context, "missing_GEMINI_LETTER_API_KEY", validation_path)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            validation_path=validation_path,
+            mode_label="CV",
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)
         return
@@ -250,14 +333,30 @@ def main(quiet: bool = False) -> None:
     prompt = build_letter_prompt(
         application_context=application_context,
         cv_markdown=cv_markdown,
-        lm_instructions=_read_text(LM_INSTRUCTIONS_MD_PATH),
+        lm_instructions=_load_lm_instructions(),
         lm_template=_read_text(LM_TEMPLATE_MD_PATH),
         lm_demo=_read_text(LM_DEMO_VALIDEE_MD_PATH),
     )
-    raw_result = generate_letter_with_gemini(prompt)
+    try:
+        raw_result = generate_letter_with_gemini(prompt)
+    except Exception as exc:
+        _handle_lm_generation_failure(
+            error=exc,
+            application_context=application_context,
+            company_name=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_docx_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            cv_markdown_path=cv_markdown_path,
+            validation_path=validation_path,
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        return
 
     try:
         letter_result = parse_letter_result(raw_result)
+        letter_result = sanitize_letter_result(letter_result, cv_markdown)
         save_letter_result(letter_result, LETTER_RESULT_PATH)
     except LetterResultParseError as exc:
         failed_output_path.write_text(raw_result, encoding="utf-8")
@@ -273,9 +372,25 @@ def main(quiet: bool = False) -> None:
             "salary": parsed_job.get("salary", ""),
             "location": parsed_job.get("location", ""),
             "job_url": parsed_job.get("job_url", ""),
+            "ats_score": ats_score,
+            "ats_final": report.get("ats_final", {}),
             "cv_docx_path": str(cv_docx_path),
             "cv_markdown_path": str(cv_markdown_path),
         }
+        _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=raw_result,
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="CV_LM_REVIEW",
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
         _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         print(f"LM invalide : {validation_path}")
@@ -298,6 +413,20 @@ def main(quiet: bool = False) -> None:
         validation_report["lm_docx_path"] = None
         validation_report["tracker_update_status"] = "skipped_validation_failed"
         _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result.get("final_letter", raw_result),
+            validation_path=validation_path,
+            failed_output_path=failed_output_path,
+            mode_label="CV_LM_REVIEW",
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)
         return
@@ -310,12 +439,38 @@ def main(quiet: bool = False) -> None:
         )
         validation_report["lm_docx_path"] = None
         _write_json(validation_path, validation_report)
+        pack_path = create_application_pack(
+            company=company_name,
+            job_title=parsed_job.get("job_title", "Poste cible"),
+            cv_path=cv_docx_path,
+            cv_markdown=cv_markdown,
+            final_letter=letter_result["final_letter"],
+            validation_path=validation_path,
+            mode_label="CV_LM_NO_DOCX",
+            timestamp=timestamp,
+            ats_score=ats_score,
+        )
+        validation_report["application_pack_path"] = str(pack_path)
+        _write_json(validation_path, validation_report)
         _update_tracker_safely(validation_report, validation_path)
         _print_summary(validation_report, validation_path, cv_markdown_path)
         return
 
     render_letter_docx(application_context, letter_result["final_letter"], lm_docx_path)
     validation_report["lm_docx_path"] = str(lm_docx_path)
+    pack_path = create_application_pack(
+        company=company_name,
+        job_title=parsed_job.get("job_title", "Poste cible"),
+        cv_path=cv_docx_path,
+        cv_markdown=cv_markdown,
+        lm_docx_path=lm_docx_path,
+        final_letter=letter_result["final_letter"],
+        validation_path=validation_path,
+        mode_label="CV_LM",
+        timestamp=timestamp,
+        ats_score=ats_score,
+    )
+    validation_report["application_pack_path"] = str(pack_path)
     _cleanup_success_markdown(cv_markdown_path, validation_report)
     _write_json(validation_path, validation_report)
     _update_tracker_safely(validation_report, validation_path)

@@ -3,6 +3,7 @@
 credentials/
 data/reference/master_profile.xlsx
 data/input/job_description.txt
+data/input/reference_cv.*
 templates/base_cv.docx
 templates/base_cover_letter.docx
 
@@ -14,6 +15,7 @@ templates/base_cover_letter.docx
 # Fichiers générés
 data/output/
 data/company_profiles/
+data/local_config/
 
 # Environnements Python
 src/.venv/

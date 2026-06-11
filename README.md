@@ -44,23 +44,33 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 Commande principale :
 
 ```bash
-python run_application.py
+src/.venv/bin/python run_web.py
 ```
 
-Sorties attendues :
+Ouvre ensuite `http://127.0.0.1:8765` dans ton navigateur. L'interface guide
+les trois usages courants : CV seul, CV + LM, ou LM seulement. Sorties attendues :
 
 ```text
 data/output/
 ├── cv/
 │   └── CV_....docx
-└── cover_letters/
-    ├── LM_....docx
-    └── LM_...._validation.json
+├── cover_letters/
+│   ├── LM_....docx
+│   └── LM_...._validation.json
+└── applications/
+    └── Entreprise_Poste/
+        ├── CV_Entreprise_Poste.docx
+        ├── LM_Entreprise_Poste.docx
+        └── A_MODIFIER.md
 ```
 
 Les fichiers techniques du run restent dans `data/output/`, mais ils sont masqués dans VS Code pour garder l'explorateur lisible.
 
 Le CV Markdown est un fichier temporaire interne pour Gemini : il est généré, utilisé pour la LM, puis supprimé dès que la LM DOCX est créée. La lettre de motivation finale est exportée uniquement en DOCX. ResumeForge ne génère pas de fichier final `LM_....md`.
+
+Le dossier `data/output/applications/` est le pack propre de candidature. Il applique la règle **1 job = 1 playlist** : pour une même entreprise et un même poste, le dossier est remplacé à chaque nouvelle génération. Pour une nouvelle job description, un nouveau dossier est créé. Le CV n'est pas réécrit en mode `LM seulement` : il est seulement copié et renommé pour coller à la candidature.
+
+Le pack garde un seul fichier éditable : `A_MODIFIER.md`. C'est la source lisible à ouvrir dans VS Code si tu veux demander une modification ou reprendre le texte. Les DOCX du pack sont mis à jour automatiquement à chaque génération/rendu. En revanche, si tu modifies manuellement `A_MODIFIER.md`, il faut relancer un rendu pour produire des DOCX propres.
 
 ## Logique
 
@@ -90,26 +100,140 @@ La validation bloque l'export DOCX si la LM contient un élément inventé : chi
 
 ## Commandes
 
-Les commandes prêtes à l'emploi sont dans [COMMANDS.md](COMMANDS.md).
+### Utilisation quotidienne avec l'interface web
 
-Les plus utiles :
+Lancer le serveur local :
 
 ```bash
-# Pipeline complet, affichage propre
-python run_application.py --quiet
-
-# Pipeline complet, logs détaillés
-python run_application.py
-
-# Ancien pipeline CV seul
-python run.py
-
-# Tests
-python -m pytest
-
-# Enrichir manuellement une base métier depuis l'offre courante
-python scripts/enrich_domain_vocabulary.py --domain retail_operations
+src/.venv/bin/python run_web.py
 ```
+
+Puis ouvrir l'interface dans un second terminal :
+
+```bash
+open http://127.0.0.1:8765
+```
+
+Pour arrêter le serveur, utilise `Ctrl+C` dans son terminal. Pour le couper
+depuis n'importe quel terminal :
+
+```bash
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
+```
+
+Redémarrer complètement l'interface :
+
+```bash
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
+src/.venv/bin/python run_web.py
+```
+
+Commandes utiles :
+
+| Besoin | Commande |
+|---|---|
+| Lancer l'interface web | `src/.venv/bin/python run_web.py` |
+| Ouvrir l'interface | `open http://127.0.0.1:8765` |
+| Utiliser le menu terminal historique | `src/.venv/bin/python run_menu.py` |
+| Tester le projet | `src/.venv/bin/python -m pytest` |
+| Commandes avancées | voir [COMMANDS.md](COMMANDS.md) |
+
+## Interface Web Locale
+
+L'interface web locale ajoute une page simple au-dessus du pipeline existant.
+Elle constitue le parcours utilisateur recommandé et ne publie rien sur Internet.
+Le menu historique `run_menu.py` reste disponible pour un usage en terminal.
+
+### Installation depuis un clone neuf
+
+Prérequis :
+
+- Python 3.11 recommandé ;
+- une clé Gemini pour les générations utilisant Gemini ;
+- Word ou LibreOffice uniquement si tu veux modifier les templates DOCX.
+
+```bash
+git clone https://github.com/Insular2895/ResumeForge.git
+cd ResumeForge
+python3 -m venv src/.venv
+src/.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Remplis ensuite les clés nécessaires dans `.env`, puis démarre l'interface :
+
+```bash
+src/.venv/bin/python run_web.py
+```
+
+Puis ouvrir :
+
+```text
+http://127.0.0.1:8765
+```
+
+Au premier lancement, ouvre `Références locales` et ajoute :
+
+- le profil Excel maître ;
+- le template CV Word ;
+- le template LM Word ;
+- un CV de référence si tu utilises `LM seulement`.
+
+L'interface permet :
+
+- de choisir `CV`, `CV + LM` ou `LM seulement` ;
+- de remplacer les références privées locales ;
+- de personnaliser séparément les instructions Gemini CV et LM ;
+- de télécharger le pack courant au format ZIP.
+- de bloquer les doubles clics et toute seconde génération simultanée.
+
+L'interface écoute uniquement sur `127.0.0.1`. Ne lance pas une génération
+depuis le terminal pendant qu'une génération web est en cours, car les deux
+parcours utilisent les mêmes fichiers temporaires.
+
+Pour arrêter l'interface :
+
+```bash
+Ctrl+C
+```
+
+Pour mettre à jour une installation existante :
+
+```bash
+git pull
+src/.venv/bin/python -m pip install -r requirements.txt
+src/.venv/bin/python run_web.py
+```
+
+Si le port `8765` est déjà utilisé, l'interface est probablement déjà lancée.
+Ouvre `http://127.0.0.1:8765` ou utilise la commande d'arrêt documentée plus haut
+avant de relancer `run_web.py`.
+
+## Modes De Travail
+
+### Option 1 - Juste CV
+
+Tu colles une job description, puis `FIN`. ResumeForge génère un CV ciblé depuis `master_profile.xlsx` et `templates/base_cv.docx`, puis crée un pack dans `data/output/applications/`.
+
+### Option 2 - CV + LM
+
+Tu colles une job description, puis `FIN`. ResumeForge génère le CV, exporte temporairement le CV en Markdown pour Gemini, génère la LM, valide la lettre, rend le DOCX, puis crée un pack complet `CV + LM`.
+
+### Option 3 - LM seulement
+
+Ce mode sert quand tu as déjà un CV optimisé pour un domaine, par exemple un CV ADV, banque ou supply.
+
+Le CV source est stocké ici :
+
+```text
+data/input/reference_cv.docx
+data/input/reference_cv.md
+data/input/reference_cv.txt
+```
+
+Au premier run, le menu demande le chemin du CV optimisé et le copie dans `data/input/reference_cv.*`. Aux runs suivants, il propose de réutiliser ce CV. Tu peux taper `r` pour le remplacer.
+
+Ensuite tu colles seulement l'offre ou le contexte cible pour la LM, puis `FIN`. Le système utilise le CV de référence comme seule source profil, génère une LM adaptée, et crée un pack où le CV est simplement copié/renommé selon l'entreprise et le poste.
 
 ## Installation
 
@@ -314,7 +438,7 @@ Exemples :
 Pour enrichir manuellement une base depuis une nouvelle offre :
 
 ```bash
-python scripts/enrich_domain_vocabulary.py --domain retail_operations
+src/.venv/bin/python scripts/enrich_domain_vocabulary.py --domain retail_operations
 ```
 
 Cette commande utilise `GEMINI_DOMAIN_API_KEY` et ne consomme pas la clé CV ni la clé LM.
@@ -372,8 +496,9 @@ Si Google Sheets est configuré, la logique existante est réutilisée. Sinon, l
 ## Organisation
 
 ```text
-run.py                         # CV seul, conservé
-run_application.py             # pipeline complet
+run_menu.py                    # menu guidé, commande principale
+run.py                         # CV seul historique
+run_application.py             # pipeline complet sans menu
 src/application/               # contexte, tracking, markdown CV, recherche, base métier
 src/letter/                    # prompt LM, génération, validation, rendu DOCX
 src/render/                    # rendu Word
@@ -423,7 +548,7 @@ templates/domain_vocabulary/*.json
 ## Tests
 
 ```bash
-python -m pytest
+src/.venv/bin/python -m pytest
 ```
 
 Les tests ne nécessitent pas de clé Gemini.

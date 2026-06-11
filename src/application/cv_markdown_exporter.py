@@ -24,13 +24,13 @@ def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
     job_title = report.get("job_title_detected", "")
 
     lines = [
-        "# CV final personnalise - Lucas Pertusa",
+        "# CV final personnalisé - Lucas Pertusa",
         "",
         "## Candidature cible",
         f"- Entreprise cible : {company}",
         f"- Poste cible : {job_title}",
         "",
-        "## Experiences selectionnees",
+        "## Expériences sélectionnées",
     ]
 
     for experience in _as_list(report.get("selected_experiences")):
@@ -49,9 +49,9 @@ def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
             lines.append(f"### {title}")
         for tag in _as_list(experience.get("reason_tags")):
             if tag:
-                lines.append(f"- Terme associe : {tag}")
+                lines.append(f"- Terme associé : {tag}")
 
-    lines.extend(["", "## Leadership selectionne"])
+    lines.extend(["", "## Leadership sélectionné"])
     for item in _as_list(report.get("selected_leadership")):
         if not isinstance(item, dict):
             continue
@@ -72,7 +72,7 @@ def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
         if certification:
             lines.append(f"- {certification}")
 
-    lines.extend(["", "## Competences techniques"])
+    lines.extend(["", "## Compétences techniques"])
     for skill in _as_list(report.get("selected_technical_skills")):
         if skill:
             lines.append(f"- {skill}")
@@ -107,4 +107,3 @@ def export_cv_markdown(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     return output_path
-

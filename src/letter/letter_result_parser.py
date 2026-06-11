@@ -12,6 +12,13 @@ def strip_json_fences(raw_text: str) -> str:
     fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, flags=re.DOTALL | re.IGNORECASE)
     if fenced:
         return fenced.group(1).strip()
+    loose_fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    if loose_fenced:
+        return loose_fenced.group(1).strip()
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        return text[first:last + 1].strip()
     return text
 
 
@@ -34,4 +41,3 @@ def save_letter_result(result: dict, output_path: str | Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_path
-

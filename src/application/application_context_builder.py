@@ -6,6 +6,7 @@ import json
 import re
 
 from src.application.domain_vocabulary import load_domain_vocabulary
+from src.application.document_language import detect_document_language
 
 
 def _read_text(path: str | Path) -> str:
@@ -73,6 +74,7 @@ def build_application_context(
         "job_family": job_family,
         "domain_vocabulary": domain_vocabulary,
         "job_description": job_description,
+        "document_language": report.get("document_language") or detect_document_language(job_description),
         "job_keywords": parsed_job.get("keywords", [])[:80],
         "cv_docx_path": str(cv_docx_path),
         "cv_markdown_path": str(cv_markdown_path),
@@ -81,6 +83,10 @@ def build_application_context(
         "selected_cv_leadership": report.get("selected_leadership", []),
         "selected_cv_certifications": report.get("selected_certifications", []),
         "selected_cv_technical_skills": report.get("selected_technical_skills", []),
+        "ats_score": report.get("ats_score"),
+        "ats_acceptable_threshold": report.get("ats_acceptable_threshold"),
+        "ats_match_status": report.get("ats_match_status", ""),
+        "ats_final": report.get("ats_final", {}),
         "allowed_cv_terms": _extract_terms(cv_markdown, report),
         "allowed_numbers": _extract_numbers(cv_markdown + "\n" + job_description + "\n" + company_facts_text),
         "selected_company_facts": selected_company_facts[:3],

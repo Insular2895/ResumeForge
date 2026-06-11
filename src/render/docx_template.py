@@ -25,6 +25,7 @@ class DocxTemplateRenderer:
 
         doc = Document(self.template_path)
 
+        self._normalize_single_column_layout(doc)
         self._force_document_font(doc, DEFAULT_FONT_NAME)
 
         for paragraph in list(doc.paragraphs):
@@ -41,6 +42,17 @@ class DocxTemplateRenderer:
 
         doc.save(output_path)
         return output_path
+
+    def _normalize_single_column_layout(self, doc):
+        for break_element in doc._element.findall(".//" + qn("w:br")):
+            if break_element.get(qn("w:type")) == "column":
+                break_element.getparent().remove(break_element)
+
+        for section_properties in doc._element.findall(".//" + qn("w:sectPr")):
+            for columns in section_properties.findall(qn("w:cols")):
+                columns.set(qn("w:num"), "1")
+                for column in list(columns.findall(qn("w:col"))):
+                    columns.remove(column)
 
     def _replace_paragraph(self, paragraph, replacements):
         paragraph_text = paragraph.text
@@ -89,6 +101,9 @@ class DocxTemplateRenderer:
             "Compétences techniques :",
             "Intérêts :",
             "Langues :",
+            "Technical skills:",
+            "Interests:",
+            "Languages:",
             "Certifications :",
             "Formation :",
         ]
@@ -117,6 +132,18 @@ class DocxTemplateRenderer:
         remaining_text = paragraph.text
         if any(key in remaining_text for key in replacements.keys()):
             self._set_paragraph_text_preserve_style(paragraph, full_text)
+
+        cleaned_text = self._clean_dangling_separators(paragraph.text)
+        if not cleaned_text.strip():
+            self._remove_paragraph(paragraph)
+        elif cleaned_text != paragraph.text:
+            self._set_paragraph_text_preserve_style(paragraph, cleaned_text)
+
+    def _clean_dangling_separators(self, text):
+        cleaned = str(text).rstrip()
+        cleaned = re.sub(r"\s*[-–—]\s*$", "", cleaned).rstrip()
+        cleaned = re.sub(r"^(\s*)[-–—]\s*", r"\1", cleaned)
+        return cleaned
 
     def _replace_bullet_placeholder_with_paragraphs(self, paragraph, bullets):
         if not bullets:

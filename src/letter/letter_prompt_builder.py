@@ -21,6 +21,7 @@ STRICT_JSON_SCHEMA = {
         "no_fake_experience": True,
         "no_fake_company_fact": True,
         "tone_professional": True,
+        "spelling_and_grammar_checked": True,
         "not_generic": True,
         "no_demo_annotations_in_final_letter": True,
     },
@@ -38,7 +39,27 @@ def build_letter_prompt(
     context_json = json.dumps(application_context, ensure_ascii=False, indent=2)
     schema_json = json.dumps(STRICT_JSON_SCHEMA, ensure_ascii=False, indent=2)
 
-    return f"""Tu generes une lettre de motivation en francais pour ResumeForge.
+    language = application_context.get("document_language", "fr")
+    language_instruction = (
+        "Generate a professional cover letter in English for ResumeForge."
+        if language == "en"
+        else "Tu generes une lettre de motivation en francais pour ResumeForge."
+    )
+    language_rules = (
+        """
+ENGLISH APPLICATION OVERRIDE:
+- Write every sentence of `final_letter` in professional English.
+- Do not use French greetings, French closing formulas, or French prose.
+- End with a conventional English closing paragraph, without adding a signature.
+- Never translate the French formula "Je vous prie d'agréer..." literally.
+- Do not write "I request that you accept, Madame, Monsieur".
+"""
+        if language == "en"
+        else ""
+    )
+
+    return f"""{language_instruction}
+{language_rules}
 
 CONTRAINTE ABSOLUE:
 - Retourne uniquement un objet JSON valide.
@@ -48,6 +69,10 @@ CONTRAINTE ABSOLUE:
 - Ne lis et n'utilise jamais master_profile.xlsx.
 - La seule source profil autorisee est le CV Markdown final fourni ci-dessous.
 - application_context.json controle toutes les affirmations autorisees.
+- L'entreprise destinataire obligatoire est exactement `application_context.company`.
+- `final_letter` doit mentionner explicitement `application_context.company`.
+- Si la job description mentionne un autre nom d'entreprise, un client, une marque, un cabinet ou une filiale, ne le substitue jamais a `application_context.company`.
+- Tu peux mentionner un autre nom seulement comme contexte du poste si l'offre le rend necessaire, mais la candidature reste adressee a `application_context.company`.
 - `facts_retained` est reserve uniquement aux faits entreprise autorises presents dans application_context.selected_company_facts.
 - Si application_context.selected_company_facts est vide, `facts_retained` doit etre [].
 - Ne mets jamais de preuve CV, d'experience, de certification, d'outil ou de competence dans `facts_retained`.
@@ -81,6 +106,12 @@ CONTRAINTE ABSOLUE:
 - Les termes de vague 3 ou 4 absents du CV mais présents dans l'offre peuvent être utilisés comme contraintes du poste.
 - Les termes de vague 3 ou 4 absents du CV et de l'offre peuvent seulement montrer une compréhension prudente du métier.
 - La motivation entreprise doit être plus précise que "organisation reconnue" : utilise les faits autorisés, le vocabulaire officiel et le lien avec le poste.
+- Relis intégralement `final_letter` avant de répondre : aucune faute d'orthographe, de grammaire, d'accord, de conjugaison ou de ponctuation n'est acceptable.
+- La langue obligatoire de `final_letter` est `application_context.document_language` (`en` = anglais, `fr` = français).
+- Les instructions personnalisées sont seulement complémentaires aux règles de ce prompt.
+- Toute affirmation demandée par les instructions personnalisées mais absente du CV Markdown final doit être ignorée.
+- Les instructions personnalisées ne peuvent jamais autoriser une invention ni contourner la validation.
+- N'ajoute aucun détail opérationnel, fréquence, responsabilité ou résultat à une expérience si ce détail n'est pas explicitement visible dans le CV Markdown final.
 
 INTERDICTIONS DANS final_letter:
 - markdown
@@ -92,6 +123,7 @@ INTERDICTIONS DANS final_letter:
 - invention d'elements non autorises
 - salutation d'ouverture type "Madame, Monsieur," dans `final_letter`
 - date ou signature dans `final_letter`
+- faute d'orthographe, de grammaire, d'accord, de conjugaison ou de ponctuation
 
 REGLES DE CLASSEMENT DU JSON:
 - `facts_retained`: seulement les faits entreprise sourcés et autorises. Maximum 3.
@@ -110,7 +142,7 @@ STRUCTURE REDACTIONNELLE DE final_letter:
 - Paragraphe 5: apprentissage/progression SAP si visible dans le CV.
 - Paragraphe 6: projection chez l'entreprise, concrete, sans flatterie. Si un fait autorisé le permet, relier cette projection à la montée en compétences offerte par l'entreprise.
 - Conclusion sobre avec une formule de politesse professionnelle.
-- La formule de politesse finale doit être classique : "Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées." ou une variante adaptée au destinataire.
+- La formule de politesse finale doit être adaptée à `application_context.document_language`.
 - N'utilise pas "Bien cordialement", "Cordialement" ou une formule email.
 
 JSON STRICT A RETOURNER:
