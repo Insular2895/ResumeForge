@@ -59,6 +59,76 @@ def test_validator_accepts_valid_letter(tmp_path):
     assert Path(tmp_path / "validation.json").exists()
 
 
+def test_validator_treats_150_k_euros_and_150k_euros_as_same_number(tmp_path):
+    result = {
+        "final_letter": (
+            "I am applying for the Sales Support Representative position at stichd. "
+            "At Orion trading, I supported a 150k€ client portfolio while producing "
+            "commercial reports and coordinating customer communication. "
+            "This experience strengthened my operational approach and my ability to "
+            "support sales teams in an international environment. "
+            "I would welcome the opportunity to discuss my application with stichd."
+        ),
+        "facts_retained": [],
+        "cv_experiences_used": [],
+        "cv_technical_terms_reused": [],
+        "quality_check": {
+            "uses_only_cv_profile": True,
+            "uses_cv_markdown_as_source": True,
+            "no_fake_numbers": True,
+            "no_fake_experience": True,
+            "no_fake_company_fact": True,
+            "no_demo_annotations_in_final_letter": True,
+        },
+    }
+    context = {
+        "company": "stichd",
+        "job_title": "Sales Support Representative",
+        "document_language": "en",
+        "selected_company_facts": [],
+        "excluded_company_facts": [],
+        "allowed_numbers": ["150 k€"],
+    }
+
+    report = validate_letter_result(result, context, "Orion trading portfolio: 150 k€")
+
+    assert "invented_number: 150k€" not in report["errors"]
+
+
+def test_english_validator_accepts_english_role_when_header_title_is_french():
+    result = {
+        "final_letter": (
+            "I am applying for the Sales Support Representative position at stichd. "
+            "My experience in order management and customer support would allow me "
+            "to contribute effectively to your international sales team. "
+            "I would welcome the opportunity to discuss my application further."
+        ),
+        "facts_retained": [],
+        "cv_experiences_used": [],
+        "cv_technical_terms_reused": [],
+        "quality_check": {
+            "uses_only_cv_profile": True,
+            "uses_cv_markdown_as_source": True,
+            "no_fake_numbers": True,
+            "no_fake_experience": True,
+            "no_fake_company_fact": True,
+            "no_demo_annotations_in_final_letter": True,
+        },
+    }
+    context = {
+        "company": "stichd",
+        "job_title": "Assistant commercial",
+        "document_language": "en",
+        "selected_company_facts": [],
+        "excluded_company_facts": [],
+        "allowed_numbers": [],
+    }
+
+    report = validate_letter_result(result, context, "Sales Support Representative")
+
+    assert "job_title_not_mentioned" not in report["errors"]
+
+
 def test_validator_rejects_inventions_and_markdown():
     result = _valid_result()
     result["final_letter"] = "- [ROLE: test] Ipsen Coordinateur ADV Import-Export 500000 tickets restaurant"

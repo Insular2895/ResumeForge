@@ -121,19 +121,6 @@ def create_application_pack(
     if cv_source and cv_source.exists() and cv_source.suffix.lower() == ".docx":
         _copy_if_exists(cv_source, pack_dir / f"CV - {document_stem}{cv_source.suffix.lower()}")
 
-    cv_md = _ensure_cv_markdown(cv_source, cv_markdown)
     _copy_if_exists(lm_docx_path, pack_dir / f"LM - {document_stem}.docx")
-    _copy_if_exists(validation_path, pack_dir / "validation.json")
-    _copy_if_exists(failed_output_path, pack_dir / "LM_a_revoir.txt")
-
-    _write_text(
-        pack_dir / "A_MODIFIER.md",
-        _build_editable_source(
-            company=company,
-            job_title=job_title,
-            cv_markdown=cv_md,
-            final_letter=final_letter,
-        ),
-    )
 
     return pack_dir

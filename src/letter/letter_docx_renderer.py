@@ -15,26 +15,38 @@ def build_letter_replacements(
 ) -> dict:
     company_address = application_context.get("company_address", {})
     candidate = application_context.get("candidate", {})
-    return {
+    language = application_context.get("document_language", "fr")
+    is_english = language == "en"
+    replacements = {
+        "Le [[LM_DATE]]": datetime.now().strftime("%B %d, %Y") if is_english else f"Le {datetime.now().strftime('%d/%m/%Y')}",
+        "À [[LM_COMPANY]]": "To [[LM_COMPANY]]" if is_english else "À [[LM_COMPANY]]",
+        "A l’attention des ressources humaines": "Hiring Team" if is_english else "A l’attention des ressources humaines",
+        "tel :": "Phone:" if is_english else "tel :",
+        "email :": "Email:" if is_english else "email :",
         "[[CANDIDATE_FULL_NAME]]": candidate.get("full_name", "Mr Lucas PERTUSA"),
         "[[CANDIDATE_ADDRESS_LINE_1]]": candidate.get("address_line_1", "1 Place des Bannes"),
         "[[CANDIDATE_ADDRESS_LINE_2]]": candidate.get("address_line_2", "27710 St Georges Motel"),
         "[[CANDIDATE_PHONE]]": candidate.get("phone", "07.66.40.32.00"),
         "[[CANDIDATE_EMAIL]]": candidate.get("email", "lucaspertusa.pro@gmail.com"),
-        "[[LM_DATE]]": datetime.now().strftime("%d/%m/%Y"),
+        "[[LM_DATE]]": datetime.now().strftime("%B %d, %Y") if is_english else datetime.now().strftime("%d/%m/%Y"),
         "[[LM_COMPANY]]": application_context.get("company", ""),
         "[[LM_COMPANY_ADDRESS_LINE_1]]": company_address.get("line_1", ""),
         "[[LM_COMPANY_POSTAL_CITY]]": company_address.get("postal_city", ""),
-        "[[LM_ATTENTION_TO]]": application_context.get("attention_to", "des ressources humaines"),
+        "[[LM_ATTENTION_TO]]": application_context.get("attention_to", "Hiring Team" if is_english else "des ressources humaines"),
         "[[LM_DEPARTMENT]]": application_context.get("department", ""),
         "[[LM_JOB_TITLE]]": application_context.get("job_title", ""),
-        "[[LM_SALUTATION]]": application_context.get("salutation", "Madame, Monsieur"),
+        "[[LM_SALUTATION]]": "Dear Hiring Manager" if is_english else application_context.get("salutation", "Madame, Monsieur"),
         "[[LM_FINAL_LETTER]]": final_letter.strip(),
         "[[LM_SIGNATURE]]": signature,
-        "[[LM_OBJECT]]": f"Candidature au poste de {application_context.get('job_title', '')}",
+        "[[LM_OBJECT]]": (
+            f"Application for the position of {application_context.get('job_title', '')}"
+            if is_english
+            else f"Candidature au poste de {application_context.get('job_title', '')}"
+        ),
         "[[LM_CITY]]": "Paris",
-        "[[LM_RECIPIENT]]": "Madame, Monsieur",
+        "[[LM_RECIPIENT]]": "Dear Hiring Manager" if is_english else "Madame, Monsieur",
     }
+    return replacements
 
 
 def render_letter_docx(
@@ -53,9 +65,10 @@ def render_letter_docx(
     renderer = DocxTemplateRenderer(template_path)
     replacements = build_letter_replacements(application_context, final_letter)
     rendered_path = renderer.render(replacements, output_path)
-    enforce_french_docx(
-        rendered_path,
-        artifact_label="LM",
-        allowed_terms=[application_context],
-    )
+    if application_context.get("document_language", "fr") == "fr":
+        enforce_french_docx(
+            rendered_path,
+            artifact_label="LM",
+            allowed_terms=[application_context],
+        )
     return rendered_path

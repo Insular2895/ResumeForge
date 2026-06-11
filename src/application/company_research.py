@@ -211,7 +211,11 @@ def extract_company_facts_from_job_description(company_name: str, job_text: str)
         ),
         (
             "L'offre décrit un environnement fondé sur la confiance, l'ownership et la collaboration.",
-            ["trust, ownership, and collaboration", "trust", "ownership", "collaboration"],
+            [
+                "trust, ownership, and collaboration",
+                "trust, ownership and collaboration",
+                "confiance, ownership et collaboration",
+            ],
             "culture",
         ),
         (

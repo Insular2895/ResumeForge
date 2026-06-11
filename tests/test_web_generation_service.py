@@ -71,9 +71,10 @@ def test_verify_application_pack_enforces_each_mode_contract(tmp_path):
     cv_pack = _pack(tmp_path / "cv")
     assert verify_application_pack("cv", cv_pack)["cv_files"]
 
-    full_pack = _pack(tmp_path / "full", lm=True, validation_status="success")
+    full_pack = _pack(tmp_path / "full", lm=True)
     assert verify_application_pack("cv_lm", full_pack)["lm_files"]
     assert verify_application_pack("lm_only", full_pack)["lm_files"]
+    assert verify_application_pack("cv_lm", full_pack)["validation"] == {}
 
 
 def test_verify_application_pack_rejects_partial_cv_lm_success(tmp_path):

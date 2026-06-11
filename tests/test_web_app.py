@@ -119,3 +119,100 @@ def test_reference_upload_validation_error_is_readable(tmp_path, monkeypatch):
 
     assert response.status_code == 400
     assert "Template invalide." in response.text
+
+
+def test_experience_proposal_is_shown_before_master_update(monkeypatch):
+    proposal = {
+        "company": "Passy Primeur",
+        "job_title": "Primeur sur les marchés",
+        "location": "",
+        "date_start": "",
+        "date_end": "",
+        "context": "Expérience terrain",
+        "bullets": ["Achat", "Négociation", "Transport", "Veille", "Pricing"],
+        "tools_verified": ["Bloomberg"],
+        "skills_verified": ["supplier_negotiation"],
+        "skills_transferable": ["pricing_analysis"],
+        "industry_tags": ["fruits_legumes"],
+        "job_family_tags": ["achats"],
+    }
+    monkeypatch.setattr(web_app.experience_intake, "propose_experience", lambda *args: proposal)
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/experiences/propose",
+        data={"experience_text": "Ancienne expérience", "mode": "cv_lm", "job_text": "Offre"},
+    )
+
+    assert response.status_code == 200
+    assert "Valider et régénérer" in response.text
+    assert "Passy Primeur" in response.text
+    assert "Achat" in response.text
+
+
+def test_experience_proposal_runtime_error_is_readable(monkeypatch):
+    monkeypatch.setattr(
+        web_app.experience_intake,
+        "propose_experience",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("Gemini indisponible.")),
+    )
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/experiences/propose",
+        data={"experience_text": "Ancienne expérience suffisamment détaillée.", "mode": "cv", "job_text": "Offre"},
+    )
+
+    assert response.status_code == 400
+    assert "Gemini indisponible." in response.text
+
+
+def test_experience_confirmation_updates_master_then_regenerates(tmp_path, monkeypatch):
+    zip_path = tmp_path / "pack.zip"
+    zip_path.write_bytes(b"zip")
+    result = GenerationResult(
+        mode="cv",
+        company="FERRO",
+        job_title="Acheteur",
+        ats_score=91,
+        pack_dir=tmp_path,
+        zip_path=zip_path,
+        files=("CV.docx",),
+    )
+    captured = {}
+    monkeypatch.setattr(web_app, "SERVICE", FakeService(result=result))
+    monkeypatch.setattr(
+        web_app.experience_intake,
+        "add_validated_experience",
+        lambda proposal: captured.update(proposal),
+    )
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/experiences/confirm",
+        data={
+            "mode": "cv",
+            "job_text": "Offre FERRO",
+            "company": "Passy Primeur",
+            "job_title": "Primeur",
+            "location": "",
+            "date_start": "",
+            "date_end": "",
+            "context": "",
+            "bullet_1": "A",
+            "bullet_2": "B",
+            "bullet_3": "C",
+            "bullet_4": "D",
+            "bullet_5": "E",
+            "tools_verified": "Bloomberg | World Monitor",
+            "skills_verified": "supplier_negotiation",
+            "skills_transferable": "pricing_analysis",
+            "industry_tags": "fruits_legumes",
+            "job_family_tags": "achats",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["company"] == "Passy Primeur"
+    assert captured["bullets"] == ["A", "B", "C", "D", "E"]
+    assert "91%" in response.text

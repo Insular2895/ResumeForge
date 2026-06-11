@@ -7,9 +7,10 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
 
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
-from src.web import prompt_overrides, reference_manager
+from src.web import experience_intake, prompt_overrides, reference_manager
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
@@ -18,6 +19,7 @@ WEB_DIR = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
 PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
+load_dotenv(ROOT_DIR / ".env")
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -61,6 +63,114 @@ def generate(request: Request, mode: str = Form(...), job_text: str = Form(...))
             request,
             "index.html",
             _context(request, error=str(exc), selected_mode=mode, job_text=job_text),
+            status_code=400,
+        )
+
+
+@app.post("/experiences/propose", response_class=HTMLResponse)
+def propose_experience(
+    request: Request,
+    experience_text: str = Form(...),
+    mode: str = Form(...),
+    job_text: str = Form(...),
+):
+    try:
+        proposal = experience_intake.propose_experience(experience_text, job_text)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                experience_proposal=proposal,
+                experience_text=experience_text,
+                selected_mode=mode,
+                job_text=job_text,
+            ),
+        )
+    except (ValueError, RuntimeError) as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                error=str(exc),
+                experience_text=experience_text,
+                selected_mode=mode,
+                job_text=job_text,
+            ),
+            status_code=400,
+        )
+
+
+@app.post("/experiences/confirm", response_class=HTMLResponse)
+def confirm_experience(
+    request: Request,
+    mode: str = Form(...),
+    job_text: str = Form(...),
+    company: str = Form(...),
+    job_title: str = Form(...),
+    location: str = Form(""),
+    date_start: str = Form(""),
+    date_end: str = Form(""),
+    context: str = Form(""),
+    bullet_1: str = Form(...),
+    bullet_2: str = Form(...),
+    bullet_3: str = Form(...),
+    bullet_4: str = Form(...),
+    bullet_5: str = Form(""),
+    tools_verified: str = Form(""),
+    skills_verified: str = Form(""),
+    skills_transferable: str = Form(""),
+    industry_tags: str = Form(""),
+    job_family_tags: str = Form(""),
+):
+    proposal = {
+        "company": company,
+        "job_title": job_title,
+        "location": location,
+        "date_start": date_start,
+        "date_end": date_end,
+        "context": context,
+        "bullets": [bullet_1, bullet_2, bullet_3, bullet_4, bullet_5],
+        "tools_verified": tools_verified,
+        "skills_verified": skills_verified,
+        "skills_transferable": skills_transferable,
+        "industry_tags": industry_tags,
+        "job_family_tags": job_family_tags,
+    }
+    try:
+        experience_intake.add_validated_experience(proposal)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                error=str(exc),
+                experience_proposal=experience_intake.normalize_proposal(proposal),
+                selected_mode=mode,
+                job_text=job_text,
+            ),
+            status_code=400,
+        )
+
+    try:
+        result = SERVICE.run(mode, job_text)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, result=result, selected_mode=mode, job_text=job_text),
+        )
+    except GenerationError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                error=f"Expérience ajoutée au master, mais régénération impossible : {exc}",
+                selected_mode=mode,
+                job_text=job_text,
+            ),
             status_code=400,
         )
 

@@ -61,6 +61,54 @@
         </div>
       </form>
 
+      <details {% if experience_proposal %}open{% endif %}>
+        <summary>Ajouter une ancienne expérience au master</summary>
+        <div class="details-content">
+          {% if experience_proposal %}
+          <section class="notice warning">
+            <div>
+              <strong>Proposition à vérifier</strong>
+              <span>Relis et corrige chaque fait avant l’écriture dans le master Excel.</span>
+            </div>
+          </section>
+          <form class="experience-review" action="/experiences/confirm" method="post">
+            <input type="hidden" name="mode" value="{{ selected_mode or 'cv_lm' }}">
+            <input type="hidden" name="job_text" value="{{ job_text or '' }}">
+            <div class="field-grid">
+              <label class="field">Entreprise<input name="company" required value="{{ experience_proposal.company }}"></label>
+              <label class="field">Intitulé<input name="job_title" required value="{{ experience_proposal.job_title }}"></label>
+              <label class="field">Lieu<input name="location" value="{{ experience_proposal.location }}"></label>
+              <label class="field">Début<input name="date_start" value="{{ experience_proposal.date_start }}"></label>
+              <label class="field">Fin<input name="date_end" value="{{ experience_proposal.date_end }}"></label>
+            </div>
+            <label class="field">Contexte<textarea name="context">{{ experience_proposal.context }}</textarea></label>
+            {% for bullet in experience_proposal.bullets %}
+            <label class="field">Bullet {{ loop.index }}<textarea name="bullet_{{ loop.index }}" required>{{ bullet }}</textarea></label>
+            {% endfor %}
+            {% if experience_proposal.bullets | length == 4 %}
+            <label class="field">Bullet 5 facultatif<textarea name="bullet_5"></textarea></label>
+            {% endif %}
+            <label class="field">Outils vérifiés<input name="tools_verified" value="{{ experience_proposal.tools_verified | join(' | ') }}"></label>
+            <label class="field">Compétences vérifiées<input name="skills_verified" value="{{ experience_proposal.skills_verified | join(' | ') }}"></label>
+            <label class="field">Compétences transférables<input name="skills_transferable" value="{{ experience_proposal.skills_transferable | join(' | ') }}"></label>
+            <label class="field">Secteurs<input name="industry_tags" value="{{ experience_proposal.industry_tags | join(' | ') }}"></label>
+            <label class="field">Familles de métiers<input name="job_family_tags" value="{{ experience_proposal.job_family_tags | join(' | ') }}"></label>
+            <button class="button primary" type="submit">Valider et régénérer</button>
+          </form>
+          {% else %}
+          <form id="experience-proposal-form" action="/experiences/propose" method="post">
+            <input id="experience-mode" type="hidden" name="mode" value="{{ selected_mode or 'cv_lm' }}">
+            <input id="experience-job-text" type="hidden" name="job_text" value="{{ job_text or '' }}">
+            <label class="field">
+              Raconte l’expérience avec les faits, outils, résultats et exemples concrets
+              <textarea name="experience_text" required placeholder="Exemple : j’ai travaillé chez…">{{ experience_text or '' }}</textarea>
+            </label>
+            <button class="button small" type="submit">Analyser avant ajout</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+
       <details>
         <summary>Références locales</summary>
         <div class="details-content">
@@ -106,7 +154,7 @@
 
           <form action="/prompts/lm" method="post">
             <label class="field">
-              Instructions de rédaction LM
+              Instructions supplémentaires de rédaction LM
               <textarea name="value" required placeholder="Aucune personnalisation active">{{ lm_prompt }}</textarea>
             </label>
             <div class="actions">
@@ -123,6 +171,7 @@
       const form = document.getElementById("generation-form");
       const button = document.getElementById("generate-button");
       const progress = document.getElementById("generation-progress");
+      const experienceForm = document.getElementById("experience-proposal-form");
 
       form.addEventListener("submit", (event) => {
         if (form.dataset.submitted === "true") {
@@ -139,6 +188,15 @@
           control.readOnly = true;
         });
       });
+
+      if (experienceForm) {
+        experienceForm.addEventListener("submit", () => {
+          document.getElementById("experience-mode").value =
+            form.querySelector('input[name="mode"]:checked')?.value || "cv_lm";
+          document.getElementById("experience-job-text").value =
+            document.getElementById("job_text").value;
+        });
+      }
     </script>
   </body>
 </html>

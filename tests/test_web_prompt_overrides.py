@@ -23,7 +23,7 @@ def test_prompt_override_rejects_empty_value(tmp_path, monkeypatch):
         prompt_overrides.save_override("lm", "   ")
 
 
-def test_effective_lm_instructions_prefers_override(tmp_path, monkeypatch):
+def test_effective_lm_instructions_appends_override_to_default_rules(tmp_path, monkeypatch):
     monkeypatch.setattr(prompt_overrides, "LOCAL_CONFIG_DIR", tmp_path / "config")
     default_path = tmp_path / "default.md"
     default_path.write_text("Instructions originales", encoding="utf-8")
@@ -32,7 +32,10 @@ def test_effective_lm_instructions_prefers_override(tmp_path, monkeypatch):
 
     prompt_overrides.save_override("lm", "Instructions personnalisées")
 
-    assert prompt_overrides.load_effective_lm_instructions(default_path) == "Instructions personnalisées"
+    effective = prompt_overrides.load_effective_lm_instructions(default_path)
+    assert "Instructions originales" in effective
+    assert "Instructions personnalisées" in effective
+    assert "uniquement si elles sont soutenues par le CV final" in effective
 
 
 def test_append_cv_override_leaves_prompt_unchanged_without_override(tmp_path, monkeypatch):
@@ -45,6 +48,17 @@ def test_append_cv_override_leaves_prompt_unchanged_without_override(tmp_path, m
     effective = prompt_overrides.append_cv_override("Prompt principal")
     assert "Prompt principal" in effective
     assert "Ne change jamais les chiffres." in effective
+    assert "ne peuvent jamais autoriser une invention" in effective
+
+
+def test_override_is_active_only_for_non_empty_saved_prompt(tmp_path, monkeypatch):
+    monkeypatch.setattr(prompt_overrides, "LOCAL_CONFIG_DIR", tmp_path)
+
+    assert prompt_overrides.is_override_active("cv") is False
+
+    prompt_overrides.save_override("cv", "Mettre en avant Rungis.")
+
+    assert prompt_overrides.is_override_active("cv") is True
 
 
 def test_cli_lm_loaders_use_effective_override(monkeypatch):
@@ -77,3 +91,30 @@ def test_cv_enhancer_applies_custom_override_before_gemini(monkeypatch):
     cv_enhancer.improve_full_cv_with_gemini([], [], "Offre")
 
     assert captured["prompt"].endswith("CUSTOM")
+
+
+def test_cv_enhancer_never_rewrites_locked_user_validated_experience(monkeypatch):
+    from src.llm import cv_enhancer
+
+    monkeypatch.setattr(cv_enhancer, "is_gemini_enabled", lambda: True)
+    monkeypatch.setattr(
+        cv_enhancer,
+        "ask_gemini",
+        lambda prompt: (
+            '{"experiences":[{"index":0,"position":"Acheteur / Vendeur",'
+            '"bullets":["Approvisionnement quotidien et gestion des stocks."]}],'
+            '"leadership":[]}'
+        ),
+    )
+    source = [
+        {
+            "company": "Passy Primeur",
+            "position": "Primeur sur les marchés",
+            "bullets": ["Participation à l'approvisionnement auprès de fournisseurs à Rungis."],
+            "rewrite_locked": True,
+        }
+    ]
+
+    experiences, _ = cv_enhancer.improve_full_cv_with_gemini(source, [], "Acheteur fruits et légumes")
+
+    assert experiences == source

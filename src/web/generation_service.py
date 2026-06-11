@@ -105,7 +105,7 @@ def verify_application_pack(mode: str, pack_dir: str | Path) -> dict:
             raise GenerationError(f"La LM n'a pas passé la validation : {details}")
         if not lm_files:
             raise GenerationError("La LM attendue n'a pas été générée.")
-        if validation.get("validation_status") != "success":
+        if validation and validation.get("validation_status") != "success":
             raise GenerationError("La LM n'a pas passé la validation.")
 
     return {

@@ -37,6 +37,14 @@ def test_french_checker_allows_professional_terms_and_proper_names():
     assert report["status"] == "success"
 
 
+def test_french_checker_allows_valid_logistics_plural():
+    report = check_french_text(
+        "Le suivi précis des acheminements sécurise les approvisionnements.",
+    )
+
+    assert report["status"] == "success"
+
+
 def test_french_checker_allows_ellipsis_but_rejects_repeated_exclamation():
     assert check_french_text("Organisation, suivi, coordination...")["status"] == "success"
     assert check_french_text("Organisation impeccable!!!")["status"] == "failed"

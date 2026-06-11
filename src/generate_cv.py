@@ -7,7 +7,8 @@ import unicodedata
 import pandas as pd
 
 from src.render.docx_template import DocxTemplateRenderer
-from src.llm.cv_enhancer import improve_full_cv_with_gemini
+from src.llm.cv_enhancer import improve_full_cv_with_gemini, translate_cv_lists_to_english
+from src.application.document_language import detect_document_language, cv_static_replacements
 from src.application.ats_matcher import (
     analyze_ats_match,
     build_job_reference_context,
@@ -18,6 +19,7 @@ from src.letter.french_proofreader import (
     check_french_text,
     enforce_french_docx,
 )
+from src.web.prompt_overrides import is_override_active
 
 
 # ============================================================
@@ -137,6 +139,8 @@ def format_year_or_date(value):
 
     if not value:
         return ""
+    if re.fullmatch(r"(?:19|20)\d{2}\.0", value):
+        return value[:-2]
 
     # 2023-2026 / 2023 – 2026
     range_match = re.match(
@@ -634,6 +638,16 @@ def score_row(row, parsed_job):
         if word in job_text and word in searchable:
             score += weight
 
+    high_signal_domain_terms = {
+        "fruits": 30,
+        "legumes": 30,
+        "rungis": 35,
+        "agroalimentaire": 25,
+    }
+    for term, weight in high_signal_domain_terms.items():
+        if term in job_text and term in searchable:
+            score += weight
+
     company = normalize_text(get_value(row, ["company", "organisation", "organization"], ""))
     flags = _context_flags(job_text)
 
@@ -675,7 +689,7 @@ def score_row(row, parsed_job):
         if flags["finance"]:
             score += 30
         if flags["supply"]:
-            score += 66
+            score += 10
         if flags["marketing"]:
             score += 55
         if "publicite" in job_text or "media" in job_text or "achat media" in job_text:
@@ -2116,12 +2130,14 @@ def format_experience(row):
         end = get_value(row, ["date_end", "end_year"], "")
         dates = clean_dash_join(format_year_or_date(start), format_year_or_date(end))
 
+    rewrite_locked = get_value(row, ["evidence_strength"], "").casefold() == "user_validated"
     return {
         "company": company,
         "position": position,
         "location": location,
         "dates": dates,
-        "bullets": extract_truth_bullets(row, max_bullets=4),
+        "bullets": extract_truth_bullets(row, max_bullets=5 if rewrite_locked else 4),
+        "rewrite_locked": rewrite_locked,
     }
 
 
@@ -2237,12 +2253,14 @@ def write_last_run_report(
     selected_skills,
     ats_initial=None,
     ats_final=None,
+    document_language="fr",
 ):
     report = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "mode": "local",
         "company_detected": parsed_job.get("company"),
         "job_title_detected": parsed_job.get("job_title"),
+        "document_language": document_language,
         "keywords_detected": parsed_job.get("keywords", [])[:50],
         "output_docx": str(output_path),
         "selected_experiences": [],
@@ -2301,12 +2319,14 @@ def optimize_cv_with_ats_guard(
     selected_skills,
     job_text,
     current_ats,
+    document_language="fr",
 ):
     candidate_experiences, candidate_leadership = improve_full_cv_with_gemini(
         selected_experiences,
         selected_leadership,
         job_text,
         ats_analysis=current_ats,
+        document_language=document_language,
     )
     candidate_text = build_resume_ats_text(
         experiences=candidate_experiences,
@@ -2315,6 +2335,8 @@ def optimize_cv_with_ats_guard(
         technical_skills=selected_skills,
     )
     candidate_ats = analyze_ats_match(candidate_text, job_text)
+    if document_language == "en" or is_override_active("cv"):
+        return candidate_experiences, candidate_leadership, candidate_ats
     if candidate_ats.get("score", 0) >= current_ats.get("score", 0):
         return candidate_experiences, candidate_leadership, candidate_ats
 
@@ -2332,6 +2354,8 @@ def optimize_cv_with_ats_guard(
 def main():
     print("Lecture de la job description...")
     job_text = load_job_description()
+    document_language = detect_document_language(job_text)
+    print(f"Langue des documents : {document_language}")
 
     print("Chargement du master profile...")
     workbook = load_master_profile()
@@ -2413,6 +2437,7 @@ def main():
         selected_skills=selected_skills,
         job_text=job_text,
         current_ats=ats_initial,
+        document_language=document_language,
     )
 
     if ats_final.get("score", 0) < ATS_ACCEPTABLE_SCORE:
@@ -2424,12 +2449,19 @@ def main():
             selected_skills=selected_skills,
             job_text=job_text,
             current_ats=ats_final,
+            document_language=document_language,
         )
 
-    selected_experiences = apply_known_french_corrections(selected_experiences)
-    selected_leadership = apply_known_french_corrections(selected_leadership)
-    selected_certifications = apply_known_french_corrections(selected_certifications)
-    selected_skills = apply_known_french_corrections(selected_skills)
+    if document_language == "en":
+        selected_certifications, selected_skills = translate_cv_lists_to_english(
+            selected_certifications,
+            selected_skills,
+        )
+    else:
+        selected_experiences = apply_known_french_corrections(selected_experiences)
+        selected_leadership = apply_known_french_corrections(selected_leadership)
+        selected_certifications = apply_known_french_corrections(selected_certifications)
+        selected_skills = apply_known_french_corrections(selected_skills)
 
     cv_language_check = check_french_text(
         build_resume_ats_text(
@@ -2451,7 +2483,7 @@ def main():
             ],
         ],
     )
-    if cv_language_check["status"] != "success":
+    if document_language == "fr" and cv_language_check["status"] != "success":
         details = "; ".join(
             f"{issue['text']} -> {issue['suggestion']}"
             for issue in cv_language_check["issues"]
@@ -2464,6 +2496,7 @@ def main():
         selected_certifications,
         selected_skills,
     )
+    replacements.update(cv_static_replacements(document_language))
 
     print("\n--- Résumé génération ---")
     print(f"Entreprise détectée : {parsed_job.get('company')}")
@@ -2506,17 +2539,18 @@ def main():
     if not output_path.exists():
         raise RuntimeError(f"Le fichier n'a pas été généré : {output_path}")
 
-    enforce_french_docx(
-        output_path,
-        artifact_label="CV",
-        allowed_terms=[
-            parsed_job,
-            selected_certifications,
-            selected_skills,
-            [experience.get("company", "") for experience in selected_experiences],
-            [leadership.get("org", "") for leadership in selected_leadership],
-        ],
-    )
+    if document_language == "fr":
+        enforce_french_docx(
+            output_path,
+            artifact_label="CV",
+            allowed_terms=[
+                parsed_job,
+                selected_certifications,
+                selected_skills,
+                [experience.get("company", "") for experience in selected_experiences],
+                [leadership.get("org", "") for leadership in selected_leadership],
+            ],
+        )
 
     write_last_run_report(
         parsed_job=parsed_job,
@@ -2529,6 +2563,7 @@ def main():
         selected_skills=selected_skills,
         ats_initial=ats_initial,
         ats_final=ats_final,
+        document_language=document_language,
     )
 
     print(f"CV généré : {output_path}")

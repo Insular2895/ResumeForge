@@ -22,6 +22,7 @@ COMMON_TYPO_CORRECTIONS = {
 
 ALLOWED_PROFESSIONAL_TERMS = {
     "adv",
+    "acheminements",
     "ats",
     "ecommerce",
     "erp",

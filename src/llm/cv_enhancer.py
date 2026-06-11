@@ -20,7 +20,7 @@ def clean_json_response(text: str) -> str:
     return cleaned
 
 
-def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_text, ats_analysis=None):
+def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_text, ats_analysis=None, document_language="fr"):
     """
     Optimise tous les bullets du CV en un seul appel Gemini.
     Fallback : retourne les contenus originaux si Gemini échoue.
@@ -39,6 +39,7 @@ def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_t
                 "company": exp.get("company", ""),
                 "position": exp.get("position", ""),
                 "bullets": exp.get("bullets", []),
+                "rewrite_locked": bool(exp.get("rewrite_locked")),
             }
             for index, exp in enumerate(experiences_copy)
         ],
@@ -96,9 +97,11 @@ Contraintes strictes :
 - préfère une formulation crédible du type "contribution à", "suivi de", "coordination de", "appui à", "fiabilisation de", plutôt que des claims trop forts quand la preuve est indirecte
 - évite les formulations fortes du type "expert", "maîtrise avancée", "spécialiste SAP" si ce n'est pas prouvé
 - style professionnel
-- français naturel
+- rédige tous les intitulés de poste, rôles et bullets en {"anglais professionnel" if document_language == "en" else "français naturel"}
+- conserve les noms d'entreprise, organisations, lieux, dates, chiffres et outils inchangés
+- ne modifie ni l'intitulé ni les bullets d'une expérience avec `rewrite_locked: true`
 - bullets courts
-- ne modifie pas les noms d'entreprise, postes, lieux ou dates
+- ne modifie pas les noms d'entreprise, lieux ou dates
 - réponse uniquement en JSON valide
 - aucun commentaire avant ou après
 
@@ -107,12 +110,14 @@ Format de réponse obligatoire :
   "experiences": [
     {{
       "index": 0,
+      "position": "intitulé traduit si nécessaire",
       "bullets": ["bullet 1", "bullet 2"]
     }}
   ],
   "leadership": [
     {{
       "index": 0,
+      "role": "rôle traduit si nécessaire",
       "bullets": ["bullet 1", "bullet 2"]
     }}
   ]
@@ -140,8 +145,12 @@ CV à optimiser :
 
             if not isinstance(index, int) or index < 0 or index >= len(experiences_copy):
                 continue
+            if experiences_copy[index].get("rewrite_locked"):
+                continue
 
             old_bullets = experiences_copy[index].get("bullets", [])
+            if item.get("position"):
+                experiences_copy[index]["position"] = str(item["position"]).strip()
 
             if len(new_bullets) == len(old_bullets):
                 experiences_copy[index]["bullets"] = [
@@ -158,6 +167,8 @@ CV à optimiser :
                 continue
 
             old_bullets = leadership_copy[index].get("bullets", [])
+            if item.get("role"):
+                leadership_copy[index]["role"] = str(item["role"]).strip()
 
             if len(new_bullets) == len(old_bullets):
                 leadership_copy[index]["bullets"] = [
@@ -171,3 +182,47 @@ CV à optimiser :
     except Exception as error:
         print(f"[Gemini fallback full CV] {error}")
         return selected_experiences, selected_leadership
+
+
+def translate_cv_lists_to_english(certifications, technical_skills):
+    fallback_certifications = [_translate_known_cv_term(item) for item in certifications]
+    fallback_skills = [_translate_known_cv_term(item) for item in technical_skills]
+    if not is_gemini_enabled():
+        return fallback_certifications, fallback_skills
+    prompt = f"""
+Translate this CV content into concise professional English.
+Keep product names, organizations, acronyms, and software names unchanged.
+Return only valid JSON with exactly these keys and the same item counts:
+{{
+  "certifications": ["..."],
+  "technical_skills": ["..."]
+}}
+
+Content:
+{json.dumps({"certifications": certifications, "technical_skills": technical_skills}, ensure_ascii=False)}
+"""
+    try:
+        result = json.loads(clean_json_response(ask_gemini(prompt)))
+        translated_certifications = result.get("certifications", [])
+        translated_skills = result.get("technical_skills", [])
+        if len(translated_certifications) != len(certifications):
+            translated_certifications = fallback_certifications
+        if len(translated_skills) != len(technical_skills):
+            translated_skills = fallback_skills
+        return translated_certifications, translated_skills
+    except Exception as error:
+        print(f"[Gemini fallback English CV lists] {error}")
+        return fallback_certifications, fallback_skills
+
+
+def _translate_known_cv_term(value):
+    text = str(value)
+    replacements = {
+        "Documentation administrative": "Administrative documentation",
+        "Gestion de données clients": "Customer data management",
+        "Service client": "Customer service",
+        "Support client": "Customer support",
+        "Gestion des commandes": "Order management",
+        "Gestion des stocks": "Inventory management",
+    }
+    return replacements.get(text, text)

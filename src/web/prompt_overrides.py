@@ -48,15 +48,33 @@ def reset_override(kind: str) -> bool:
     return True
 
 
+def is_override_active(kind: str) -> bool:
+    return load_override(kind) is not None
+
+
 def load_effective_lm_instructions(default_path: str | Path) -> str:
+    default = Path(default_path).read_text(encoding="utf-8", errors="ignore").strip()
     override = load_override("lm")
-    if override:
-        return override
-    return Path(default_path).read_text(encoding="utf-8", errors="ignore")
+    if not override:
+        return default
+    return (
+        f"{default}\n\n"
+        "## Instructions personnalisées supplémentaires\n"
+        "Ces instructions complètent les règles précédentes et s'appliquent uniquement "
+        "si elles sont soutenues par le CV final. Elles ne peuvent jamais autoriser une "
+        "invention ou contourner la validation.\n\n"
+        f"{override}\n"
+    )
 
 
 def append_cv_override(prompt: str) -> str:
     override = load_override("cv")
     if not override:
         return prompt
-    return f"{prompt.rstrip()}\n\nInstructions personnalisées supplémentaires :\n{override}\n"
+    return (
+        f"{prompt.rstrip()}\n\n"
+        "Instructions personnalisées supplémentaires "
+        "(à appliquer uniquement lorsqu'elles sont soutenues par le profil fourni ; "
+        "elles ne peuvent jamais autoriser une invention) :\n"
+        f"{override}\n"
+    )

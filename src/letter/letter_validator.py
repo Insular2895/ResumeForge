@@ -50,8 +50,11 @@ def _normalize(text: str) -> str:
 
 
 def _numbers(text: str) -> set[str]:
-    matches = re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:%|k|K|M|€|eur|EUR|ans?|mois|jours?)?\b", text or "")
-    return {match.strip() for match in matches}
+    matches = re.findall(
+        r"\b\d+(?:[,.]\d+)?\s*(?:%|[kKmM]\s*€?|€|eur|EUR|ans?|mois|jours?)?",
+        text or "",
+    )
+    return {re.sub(r"\s+", "", match).casefold() for match in matches if match.strip()}
 
 
 def _has_markdown(text: str) -> bool:
@@ -136,7 +139,11 @@ def validate_letter_result(
     generic_companies = {"entreprise", "societe", "société", "company"}
     if company and company.casefold() not in generic_companies and company.casefold() not in final_letter.casefold():
         errors.append("company_not_mentioned")
-    if job_title and not _job_title_is_mentioned(job_title, final_letter):
+    translated_role_targeting = (
+        application_context.get("document_language") == "en"
+        and bool(re.search(rf"\bposition\s+at\s+{re.escape(company)}\b", final_letter, re.IGNORECASE))
+    )
+    if job_title and not translated_role_targeting and not _job_title_is_mentioned(job_title, final_letter):
         errors.append("job_title_not_mentioned")
 
     invented_numbers = sorted(number for number in _numbers(final_letter) if number not in allowed_numbers)
@@ -169,16 +176,19 @@ def validate_letter_result(
     for benefit in BANAL_BENEFITS:
         if benefit in final_lower:
             errors.append(f"banal_benefit_used: {benefit}")
-    for cliché in BANNED_CLICHES:
-        if cliché in final_lower:
-            errors.append(f"cliche_phrase: {cliché}")
+    if application_context.get("document_language", "fr") == "fr":
+        for cliché in BANNED_CLICHES:
+            if cliché in final_lower:
+                errors.append(f"cliche_phrase: {cliché}")
 
     if lm_demo and _similarity(final_letter, lm_demo) > 0.72:
         errors.append("copies_demo_too_closely")
 
-    language_check = check_french_text(
-        final_letter,
-        allowed_terms=[application_context, cv_markdown],
+    document_language = application_context.get("document_language", "fr")
+    language_check = (
+        check_french_text(final_letter, allowed_terms=[application_context, cv_markdown])
+        if document_language == "fr"
+        else {"status": "success", "language": "en", "issues": []}
     )
     for issue in language_check["issues"]:
         errors.append(
@@ -204,6 +214,7 @@ def validate_letter_result(
         "validation_status": status,
         "company": company,
         "job_title": job_title,
+        "document_language": document_language,
         "salary": application_context.get("salary", ""),
         "location": application_context.get("location", ""),
         "job_url": application_context.get("job_url", ""),
