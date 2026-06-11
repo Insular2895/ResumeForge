@@ -31,7 +31,21 @@ Ou ouvrir directement le site depuis un second terminal :
 open http://127.0.0.1:8765
 ```
 
-Arrêter avec `Ctrl+C`.
+Si le serveur tourne dans le terminal actif, arrêter avec `Ctrl+C`.
+
+Pour couper le serveur depuis n'importe quel terminal :
+
+```bash
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
+```
+
+Vérifier qu'il est bien arrêté :
+
+```bash
+lsof -nP -iTCP:8765 -sTCP:LISTEN
+```
+
+Si cette dernière commande ne retourne rien, le serveur est arrêté.
 
 Une seule génération peut fonctionner à la fois. L'interface bloque les
 doubles clics et refuse les générations simultanées.
@@ -40,7 +54,7 @@ Si le terminal affiche `address already in use`, le site est normalement déjà
 lancé. Ouvre simplement l'URL ci-dessus. Pour forcer un redémarrage :
 
 ```bash
-lsof -ti :8765 | xargs kill
+pid=$(lsof -tiTCP:8765 -sTCP:LISTEN); if [ -n "$pid" ]; then kill "$pid"; fi
 src/.venv/bin/python run_web.py
 ```
 
