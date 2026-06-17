@@ -42,23 +42,6 @@ SERVICE = GenerationService(
 )
 
 
-def _proxy_port() -> str:
-    document_server_url = os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL", "")
-    if "/onlyoffice-ds" not in document_server_url:
-        return ""
-    return os.environ.get("RESUMEFORGE_PROXY_PORT", "8766")
-
-
-@app.middleware("http")
-async def redirect_direct_localhost_to_proxy(request: Request, call_next):
-    proxy_port = _proxy_port()
-    host = request.headers.get("host", "")
-    if proxy_port and host.endswith(f":{PORT}") and request.method == "GET":
-        target = request.url.replace(netloc=host.rsplit(":", 1)[0] + f":{proxy_port}")
-        return RedirectResponse(str(target), status_code=307)
-    return await call_next(request)
-
-
 def _context(request: Request, **extra) -> dict:
     document_server_url = str(
         extra.pop("document_server_url", None)
@@ -119,6 +102,45 @@ async def onlyoffice_client_event(request: Request):
 @app.get("/onlyoffice/client-events")
 def onlyoffice_client_events():
     return JSONResponse({"events": ONLYOFFICE_CLIENT_EVENTS[-100:]})
+
+
+@app.get("/onlyoffice/health")
+def onlyoffice_health(session_id: str = ""):
+    document_server_url = str(
+        os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL") or ONLYOFFICE_DOCUMENT_SERVER_URL
+    ).rstrip("/")
+    public_app_url = str(
+        os.environ.get("ONLYOFFICE_PUBLIC_APP_URL") or ONLYOFFICE_PUBLIC_APP_URL
+    ).rstrip("/")
+
+    payload: dict = {
+        "document_server_url": document_server_url,
+        "public_app_url": public_app_url,
+        "api_js_url": f"{document_server_url}/web-apps/apps/api/documents/api.js",
+        "last_client_events": ONLYOFFICE_CLIENT_EVENTS[-10:],
+        "sessions_available": [],
+        "session_files": [],
+    }
+
+    if ONLYOFFICE_SESSION_DIR.exists():
+        payload["sessions_available"] = [
+            path.name
+            for path in sorted(ONLYOFFICE_SESSION_DIR.iterdir())
+            if path.is_dir()
+        ]
+
+    if session_id:
+        session_path = ONLYOFFICE_SESSION_DIR / session_id
+        if session_path.exists():
+            payload["session_files"] = [
+                {"name": file_path.name, "size": file_path.stat().st_size}
+                for file_path in sorted(session_path.iterdir())
+                if file_path.is_file()
+            ]
+        else:
+            payload["session_not_found"] = True
+
+    return JSONResponse(payload)
 
 
 @app.get("/", response_class=HTMLResponse)

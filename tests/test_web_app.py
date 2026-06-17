@@ -197,20 +197,47 @@ def test_generate_route_opens_onlyoffice_after_success(tmp_path, monkeypatch):
     assert "sendClientEvent" in response.text
     assert "clearOnlyOfficeBrowserState" in response.text
     assert "service-worker-unregistered" in response.text
+    assert "Debug OnlyOffice" in response.text
+    assert "updateDebugPanel" in response.text
+    assert "document.url" in response.text
+    assert "callbackUrl" in response.text
     assert "onlyoffice-browser-warning" in response.text
     assert "office123" in response.text
     assert captured["session"]["session_id"] == "office123"
     assert web_app.SERVICE.kwargs["replace_existing"] is True
 
 
-def test_direct_localhost_port_redirects_to_proxy_when_proxy_enabled(monkeypatch):
+def test_direct_localhost_port_stays_on_app_even_when_proxy_url_is_set(monkeypatch):
     monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8766/onlyoffice-ds")
     client = TestClient(web_app.app, base_url="http://127.0.0.1:8765")
 
     response = client.get("/", follow_redirects=False)
 
-    assert response.status_code == 307
-    assert response.headers["location"].startswith("http://127.0.0.1:8766/")
+    assert response.status_code == 200
+    assert "ResumeForge" in response.text
+
+
+def test_onlyoffice_health_route_reports_urls_and_session_files(tmp_path, monkeypatch):
+    web_app.ONLYOFFICE_CLIENT_EVENTS.clear()
+    web_app.ONLYOFFICE_CLIENT_EVENTS.append({"event": "onAppReady"})
+    monkeypatch.setattr(web_app, "ONLYOFFICE_SESSION_DIR", tmp_path / "sessions")
+    session_dir = tmp_path / "sessions" / "session123"
+    session_dir.mkdir(parents=True)
+    (session_dir / "CV_Lucas_Pertusa.docx").write_bytes(b"docx")
+    monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8080")
+    monkeypatch.setenv("ONLYOFFICE_PUBLIC_APP_URL", "http://host.docker.internal:8765")
+    client = TestClient(web_app.app)
+
+    response = client.get("/onlyoffice/health?session_id=session123")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["document_server_url"] == "http://127.0.0.1:8080"
+    assert payload["public_app_url"] == "http://host.docker.internal:8765"
+    assert payload["api_js_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js"
+    assert payload["last_client_events"] == [{"event": "onAppReady"}]
+    assert payload["sessions_available"] == ["session123"]
+    assert payload["session_files"] == [{"name": "CV_Lucas_Pertusa.docx", "size": 4}]
 
 
 def test_onlyoffice_client_event_route_records_browser_diagnostics():
@@ -223,9 +250,9 @@ def test_onlyoffice_client_event_route_records_browser_diagnostics():
             "event": "onAppReady",
             "session_id": "session",
             "kind": "cv",
-            "url": "http://127.0.0.1:8766/onlyoffice/session",
-            "api_url": "http://127.0.0.1:8766/onlyoffice-ds/api.js",
-            "frame_url": "http://127.0.0.1:8766/onlyoffice-ds/frame",
+            "url": "http://127.0.0.1:8765/onlyoffice/session",
+            "api_url": "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js",
+            "frame_url": "http://127.0.0.1:8080/web-apps/apps/documenteditor/main/index.html",
             "user_agent": "test-browser",
         },
     )

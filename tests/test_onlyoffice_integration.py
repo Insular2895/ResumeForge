@@ -85,3 +85,25 @@ def test_callback_saves_modified_docx_and_export_zip(tmp_path, monkeypatch):
     assert result == {"error": 0}
     with zipfile.ZipFile(zip_path) as archive:
         assert archive.read("CV_Lucas_Pertusa.docx") == b"cv-edited"
+
+
+def test_callback_download_error_returns_error_without_crashing(tmp_path, monkeypatch):
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "CV - Test.docx").write_bytes(b"cv-original")
+    session = onlyoffice_integration.create_onlyoffice_session(pack, tmp_path / "sessions")
+
+    def fail_download(url, timeout=60):
+        raise TimeoutError("download timeout")
+
+    monkeypatch.setattr(onlyoffice_integration.urllib.request, "urlopen", fail_download)
+
+    result = onlyoffice_integration.handle_callback(
+        session["session_id"],
+        "cv",
+        {"status": 2, "url": "http://onlyoffice/download/docx"},
+        session_root=tmp_path / "sessions",
+    )
+
+    assert result == {"error": 1}
+    assert (tmp_path / "sessions" / session["session_id"] / "CV_Lucas_Pertusa.docx").read_bytes() == b"cv-original"

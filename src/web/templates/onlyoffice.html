@@ -69,6 +69,11 @@
 
         <div id="onlyoffice-editor"></div>
       </section>
+
+      <details id="onlyoffice-debug" style="margin:1rem 0;padding:1rem;background:#f5f5f5;border-radius:6px;font-size:0.85rem;font-family:monospace">
+        <summary style="cursor:pointer;font-weight:bold">Debug OnlyOffice</summary>
+        <pre id="onlyoffice-debug-content" style="margin:0.5rem 0 0;white-space:pre-wrap;word-break:break-all"></pre>
+      </details>
     </main>
 
     <script>
@@ -179,6 +184,28 @@
         errorBox.hidden = true;
       }
 
+      function updateDebugPanel() {
+        const frame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
+        const config = configs[activeKind] || {};
+        const info = {
+          "window.location.origin": window.location.origin,
+          "apiUrl": apiUrl,
+          "session_id": sessionId,
+          "activeKind": activeKind,
+          "document.url": config?.document?.url || "—",
+          "callbackUrl": config?.editorConfig?.callbackUrl || "—",
+          "iframe.src": frame?.src || "pas encore créée",
+          "document_server_url": "{{ document_server_url }}",
+          "public_app_url": "{{ public_app_url }}",
+        };
+        const pre = document.getElementById("onlyoffice-debug-content");
+        if (pre) {
+          pre.textContent = Object.entries(info)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join("\n");
+        }
+      }
+
       function withEditorEvents(kind, attempt) {
         const config = typeof structuredClone === "function" ? structuredClone(configs[kind]) : JSON.parse(JSON.stringify(configs[kind]));
         if (attempt > 0) {
@@ -240,8 +267,10 @@
         }
         clearTimeout(readyTimeout);
         docEditor = new DocsAPI.DocEditor("onlyoffice-editor", withEditorEvents(kind, openAttempt));
+        updateDebugPanel();
         const createdFrame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
         sendClientEvent("iframe-created", { frame_url: createdFrame?.src || "" });
+        updateDebugPanel();
         readyTimeout = window.setTimeout(() => {
           const frame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
           const frameUrl = frame?.src || "URL iframe indisponible";
@@ -276,6 +305,7 @@
           }
           hideError();
           openDocument(activeKind);
+          updateDebugPanel();
         };
         script.onerror = () => {
           sendClientEvent("api-script-error");
@@ -293,9 +323,12 @@
         document.getElementById("onlyoffice-browser-warning").hidden = false;
       }
 
+      document.addEventListener("DOMContentLoaded", updateDebugPanel);
+
       if (buttons.length) {
         sendClientEvent("page-loaded");
         clearOnlyOfficeBrowserState().finally(loadOnlyOfficeApi);
+        updateDebugPanel();
       }
     </script>
   </body>

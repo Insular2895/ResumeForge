@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 import shutil
 import urllib.request
 import uuid
 import zipfile
 
+
+logger = logging.getLogger(__name__)
 
 FINAL_NAMES = {
     "cv": "CV_Lucas_Pertusa.docx",
@@ -166,26 +169,53 @@ def handle_callback(
     *,
     session_root: str | Path,
 ) -> dict:
+    logger.info(
+        "Callback OnlyOffice | session=%s kind=%s status=%s payload_keys=%s",
+        session_id,
+        kind,
+        payload.get("status"),
+        list(payload.keys()),
+    )
+
     session = load_onlyoffice_session(session_id, session_root)
     if kind not in session["documents"]:
+        logger.warning("Callback | kind=%s introuvable dans la session %s", kind, session_id)
         raise ValueError("Document OnlyOffice introuvable.")
 
     status = int(payload.get("status", 0) or 0)
+    logger.info("Callback | status=%s", status)
+
     if status not in {2, 6}:
+        logger.info("Callback | status=%s ignoré (pas une sauvegarde)", status)
         return {"error": 0}
 
     file_url = str(payload.get("url") or "").strip()
     if not file_url:
+        logger.error("Callback | status=%s mais url manquante dans le payload", status)
         return {"error": 1}
 
     target = _session_path(session_root, session_id) / session["documents"][kind]["filename"]
-    with urllib.request.urlopen(file_url, timeout=60) as response:
-        target.write_bytes(response.read())
+    logger.info("Callback | téléchargement depuis %s vers %s", file_url, target)
+
+    try:
+        with urllib.request.urlopen(file_url, timeout=60) as response:
+            target.write_bytes(response.read())
+    except Exception as exc:
+        logger.error(
+            "Callback | échec téléchargement | session=%s kind=%s url=%s erreur=%s",
+            session_id,
+            kind,
+            file_url,
+            exc,
+            exc_info=True,
+        )
+        return {"error": 1}
 
     session["documents"][kind]["saved_at"] = datetime.now().isoformat(timespec="seconds")
     if status == 2:
         session["documents"][kind]["key"] = f"{session_id}-{kind}-{uuid.uuid4().hex[:12]}"
     _save_session(session, session_root)
+    logger.info("Callback | sauvegarde OK | session=%s kind=%s", session_id, kind)
     return {"error": 0}
 
 

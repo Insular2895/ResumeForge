@@ -4,14 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-RF_IP="$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)"
-if [[ -z "$RF_IP" ]]; then
-  echo "Impossible de détecter l'IP locale macOS. Vérifie le Wi-Fi/Ethernet." >&2
-  exit 1
-fi
-
 RESET_ONLYOFFICE="${RESET_ONLYOFFICE:-0}"
-PROXY_PORT="${RESUMEFORGE_PROXY_PORT:-8766}"
 
 if [[ "$RESET_ONLYOFFICE" == "1" ]]; then
   echo "Reset OnlyOffice Document Server..."
@@ -69,34 +62,23 @@ docker exec onlyoffice-documentserver sh -lc '
     /var/www/onlyoffice/documentserver/web-apps/apps/presentationeditor/main/index.html
   do
     [ -f "$file" ] || continue
-    sed -i "s|+function registerServiceWorker(){.*document_editor_service_worker.js.*}();|+function registerServiceWorker(){console.log(\"OnlyOffice service worker disabled by ResumeForge local launcher\");}();|g" "$file"
+    before="$(grep -c "registerServiceWorker" "$file" || true)"
+    perl -0pi -e "s|\\+function registerServiceWorker\\(\\)\\s*\\{.*?document_editor_service_worker\\.js.*?\\}\\(\\);|+function registerServiceWorker(){console.log(\"OnlyOffice service worker disabled by ResumeForge local launcher\");}();|s" "$file"
+    after="$(grep -c "OnlyOffice service worker disabled by ResumeForge local launcher" "$file" || true)"
+    echo "$file registerServiceWorker=$before disabled_marker=$after"
   done
 '
 
 echo "Préchauffage de l'API OnlyOffice..."
 /usr/bin/curl -fsS "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js" >/dev/null || true
 
-if docker ps --format '{{.Names}}' | grep -qx 'resumeforge-onlyoffice-proxy'; then
-  echo "Proxy local ResumeForge/OnlyOffice déjà lancé."
-elif docker ps -a --format '{{.Names}}' | grep -qx 'resumeforge-onlyoffice-proxy'; then
-  echo "Redémarrage du proxy local ResumeForge/OnlyOffice..."
-  docker start resumeforge-onlyoffice-proxy >/dev/null
-else
-  echo "Démarrage du proxy local ResumeForge/OnlyOffice..."
-  docker run -d \
-    --name resumeforge-onlyoffice-proxy \
-    -p "$PROXY_PORT:80" \
-    -v "$ROOT_DIR/scripts/nginx-resumeforge-onlyoffice.conf:/etc/nginx/nginx.conf:ro" \
-    nginx:alpine >/dev/null
-fi
-
-echo "ResumeForge : http://127.0.0.1:$PROXY_PORT"
+echo "ResumeForge : http://127.0.0.1:8765"
 (
   sleep 2
-  open -a "Arc" "http://127.0.0.1:$PROXY_PORT" >/dev/null 2>&1 || open "http://127.0.0.1:$PROXY_PORT" >/dev/null 2>&1 || true
+  open -a "Arc" "http://127.0.0.1:8765" >/dev/null 2>&1 || open "http://127.0.0.1:8765" >/dev/null 2>&1 || true
 ) &
 
-RESUMEFORGE_HOST=0.0.0.0 \
-ONLYOFFICE_DOCUMENT_SERVER_URL="http://127.0.0.1:$PROXY_PORT/onlyoffice-ds" \
-ONLYOFFICE_PUBLIC_APP_URL="http://$RF_IP:$PROXY_PORT" \
+RESUMEFORGE_HOST=127.0.0.1 \
+ONLYOFFICE_DOCUMENT_SERVER_URL="http://127.0.0.1:8080" \
+ONLYOFFICE_PUBLIC_APP_URL="http://host.docker.internal:8765" \
 exec src/.venv/bin/python run_web.py
