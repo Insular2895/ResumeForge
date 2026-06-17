@@ -117,6 +117,7 @@ def onlyoffice_health(session_id: str = ""):
         "document_server_url": document_server_url,
         "public_app_url": public_app_url,
         "api_js_url": f"{document_server_url}/web-apps/apps/api/documents/api.js",
+        "cleanup_url": f"{document_server_url}/web-apps/apps/api/documents/resumeforge-sw-cleanup.html",
         "last_client_events": ONLYOFFICE_CLIENT_EVENTS[-10:],
         "sessions_available": [],
         "session_files": [],

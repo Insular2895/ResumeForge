@@ -69,8 +69,53 @@ docker exec onlyoffice-documentserver sh -lc '
   done
 '
 
+echo "Installation de la page de nettoyage service worker OnlyOffice..."
+cleanup_file="$(mktemp)"
+cat > "$cleanup_file" <<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>ResumeForge OnlyOffice cleanup</title>
+  </head>
+  <body>
+    <script>
+      (async () => {
+        const result = {
+          type: "resumeforge-onlyoffice-cleanup",
+          ok: true,
+          registrations: 0,
+          caches: 0,
+          error: "",
+        };
+        try {
+          if ("serviceWorker" in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            result.registrations = registrations.length;
+            await Promise.all(registrations.map((registration) => registration.unregister()));
+          }
+          if ("caches" in window) {
+            const cacheNames = await caches.keys();
+            result.caches = cacheNames.length;
+            await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+          }
+        } catch (error) {
+          result.ok = false;
+          result.error = String(error && error.message ? error.message : error);
+        }
+        window.parent.postMessage(result, "*");
+      })();
+    </script>
+  </body>
+</html>
+HTML
+docker cp "$cleanup_file" onlyoffice-documentserver:/var/www/onlyoffice/documentserver/web-apps/apps/api/documents/resumeforge-sw-cleanup.html
+docker exec onlyoffice-documentserver chmod 644 /var/www/onlyoffice/documentserver/web-apps/apps/api/documents/resumeforge-sw-cleanup.html
+rm -f "$cleanup_file"
+
 echo "Préchauffage de l'API OnlyOffice..."
 /usr/bin/curl -fsS "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js" >/dev/null || true
+/usr/bin/curl -fsS "http://127.0.0.1:8080/web-apps/apps/api/documents/resumeforge-sw-cleanup.html" >/dev/null || true
 
 echo "ResumeForge : http://127.0.0.1:8765"
 (

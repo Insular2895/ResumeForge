@@ -186,6 +186,11 @@ separate document conversion service.
   OnlyOffice service workers for `/onlyoffice-ds/` or
   `document_editor_service_worker.js` before loading `api.js`, so a previously
   affected Arc/Chrome profile can recover without manual DevTools cleanup.
+  Because the default local setup loads OnlyOffice from `127.0.0.1:8080`, the
+  launcher also installs
+  `/web-apps/apps/api/documents/resumeforge-sw-cleanup.html` inside the Document
+  Server container. ResumeForge loads that page before `api.js`, allowing the
+  `8080` origin to unregister its own service workers and clear caches.
 - The editor config disables nonessential bundled plugins, comments, chat,
   macros and spellcheck for the ResumeForge editing flow. This keeps the
   editing surface focused on Word-like DOCX edits and avoids loading plugin

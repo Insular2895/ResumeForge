@@ -90,6 +90,8 @@
       let openAttempt = 0;
       const maxAutoRetries = 1;
       const readyTimeoutMs = 60000;
+      const documentServerOrigin = new URL(apiUrl).origin;
+      const documentServerCleanupUrl = `${documentServerOrigin}/web-apps/apps/api/documents/resumeforge-sw-cleanup.html`;
 
       function sendClientEvent(event, data = {}) {
         fetch("/onlyoffice/client-events", {
@@ -127,6 +129,49 @@
         } catch (error) {
           sendClientEvent("service-worker-cleanup-error", { message: String(error?.message || error) });
         }
+      }
+
+      function clearOnlyOfficeDocumentServerState() {
+        return new Promise((resolve) => {
+          const iframe = document.createElement("iframe");
+          let settled = false;
+          const timeout = window.setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            iframe.remove();
+            window.removeEventListener("message", handleMessage);
+            sendClientEvent("document-server-cleanup-timeout", { cleanup_url: documentServerCleanupUrl });
+            resolve();
+          }, 5000);
+
+          function finish(eventName, data = {}) {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeout);
+            iframe.remove();
+            window.removeEventListener("message", handleMessage);
+            sendClientEvent(eventName, data);
+            resolve();
+          }
+
+          function handleMessage(event) {
+            if (event.origin !== documentServerOrigin) return;
+            if (event.data?.type !== "resumeforge-onlyoffice-cleanup") return;
+            finish("document-server-cleanup-complete", {
+              ok: String(event.data.ok),
+              registrations: String(event.data.registrations || 0),
+              caches: String(event.data.caches || 0),
+              message: event.data.error || "",
+            });
+          }
+
+          window.addEventListener("message", handleMessage);
+          iframe.hidden = true;
+          iframe.title = "Nettoyage OnlyOffice";
+          iframe.src = `${documentServerCleanupUrl}?resumeForge=${Date.now()}`;
+          iframe.onerror = () => finish("document-server-cleanup-error", { cleanup_url: documentServerCleanupUrl });
+          document.body.appendChild(iframe);
+        });
       }
 
       function setStatus(title, message) {
@@ -195,6 +240,7 @@
           "document.url": config?.document?.url || "—",
           "callbackUrl": config?.editorConfig?.callbackUrl || "—",
           "iframe.src": frame?.src || "pas encore créée",
+          "cleanupUrl": documentServerCleanupUrl,
           "document_server_url": "{{ document_server_url }}",
           "public_app_url": "{{ public_app_url }}",
         };
@@ -327,7 +373,10 @@
 
       if (buttons.length) {
         sendClientEvent("page-loaded");
-        clearOnlyOfficeBrowserState().finally(loadOnlyOfficeApi);
+        Promise.all([
+          clearOnlyOfficeBrowserState(),
+          clearOnlyOfficeDocumentServerState(),
+        ]).finally(loadOnlyOfficeApi);
         updateDebugPanel();
       }
     </script>

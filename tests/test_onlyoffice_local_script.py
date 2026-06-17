@@ -16,6 +16,10 @@ def test_onlyoffice_local_script_patches_document_server_timeout():
     assert "document_editor_service_worker" in script
     assert "service worker disabled by ResumeForge local launcher" in script
     assert "perl -0pi" in script
+    assert "resumeforge-sw-cleanup.html" in script
+    assert "serviceWorker" in script
+    assert "navigator.serviceWorker.getRegistrations" in script
+    assert "caches.delete" in script
     assert "waitSeconds: 120" in script
     assert "120000" in script
     assert "return 204" in nginx_config

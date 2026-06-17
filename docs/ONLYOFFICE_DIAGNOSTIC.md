@@ -104,6 +104,12 @@ page registers `document_editor_service_worker.js`. In a persistent browser
 profile, that stale service worker can keep intercepting the editor bootstrap
 even after the application code has changed.
 
+After the default launcher was simplified to load OnlyOffice directly from
+`127.0.0.1:8080`, the parent page at `127.0.0.1:8765` could no longer unregister
+service workers that belong to the `8080` origin. The fix is therefore to serve
+a cleanup page from the OnlyOffice origin itself and let that page unregister
+its own service workers before ResumeForge loads `api.js`.
+
 ## Changes applied in this branch
 
 1. Removed the local nginx proxy from the default launcher.
@@ -125,6 +131,10 @@ even after the application code has changed.
    be diagnosed by event sequence and URLs rather than screenshots only.
 11. Added an inline debug panel in the editor page with browser origin,
    `apiUrl`, `document.url`, `callbackUrl`, iframe source and environment URLs.
+12. Added `/web-apps/apps/api/documents/resumeforge-sw-cleanup.html` inside the
+    local OnlyOffice container. ResumeForge loads it in a hidden iframe before
+    `api.js`; it unregisters service workers and clears caches from the
+    `127.0.0.1:8080` origin.
 
 ## Files of interest
 
@@ -137,6 +147,7 @@ even after the application code has changed.
   - starts Docker services;
   - patches OnlyOffice timeout;
   - disables local service-worker registration;
+  - installs the `resumeforge-sw-cleanup.html` cleanup page;
   - starts ResumeForge directly on `127.0.0.1:8765`.
 - `scripts/nginx-resumeforge-onlyoffice.conf`
   - fallback/reference proxy config only;
@@ -169,6 +180,7 @@ If the editor still hangs, inspect:
 ```bash
 curl -fsS http://127.0.0.1:8765/onlyoffice/client-events
 curl -fsS http://127.0.0.1:8765/onlyoffice/health
+curl -fsS http://127.0.0.1:8080/web-apps/apps/api/documents/resumeforge-sw-cleanup.html
 docker logs --tail 200 onlyoffice-documentserver
 ```
 

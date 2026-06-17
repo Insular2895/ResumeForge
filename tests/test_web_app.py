@@ -199,6 +199,10 @@ def test_generate_route_opens_onlyoffice_after_success(tmp_path, monkeypatch):
     assert "service-worker-unregistered" in response.text
     assert "Debug OnlyOffice" in response.text
     assert "updateDebugPanel" in response.text
+    assert "clearOnlyOfficeDocumentServerState" in response.text
+    assert "document-server-cleanup-complete" in response.text
+    assert "web-apps/apps/api/documents/resumeforge-sw-cleanup.html" in response.text
+    assert "cleanupUrl" in response.text
     assert "document.url" in response.text
     assert "callbackUrl" in response.text
     assert "onlyoffice-browser-warning" in response.text
@@ -235,6 +239,7 @@ def test_onlyoffice_health_route_reports_urls_and_session_files(tmp_path, monkey
     assert payload["document_server_url"] == "http://127.0.0.1:8080"
     assert payload["public_app_url"] == "http://host.docker.internal:8765"
     assert payload["api_js_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js"
+    assert payload["cleanup_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/resumeforge-sw-cleanup.html"
     assert payload["last_client_events"] == [{"event": "onAppReady"}]
     assert payload["sessions_available"] == ["session123"]
     assert payload["session_files"] == [{"name": "CV_Lucas_Pertusa.docx", "size": 4}]
