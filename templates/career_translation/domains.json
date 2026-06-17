@@ -1,0 +1,152 @@
+{
+  "procurement": {
+    "label": "Achats",
+    "aliases": ["achats", "acheteur", "procurement", "purchasing", "sourcing"],
+    "layers": {
+      "concepts": ["TCO", "SRM", "RFI/RFQ/RFP", "matrice de Kraljic", "single/dual sourcing", "contrats-cadres"],
+      "actions": ["sourcer", "qualifier", "consulter", "négocier", "sélectionner"],
+      "objects": ["fournisseurs", "contrats", "offres", "coûts", "risques"],
+      "results": ["réduction des coûts", "réduction du risque fournisseur", "amélioration des conditions contractuelles"]
+    },
+    "evidence_signals": {
+      "TCO": ["coût global", "coûts de transport", "coût d'approvisionnement"],
+      "SRM": ["gestion de partenaires fournisseurs", "relation fournisseurs", "performance fournisseurs"],
+      "RFI/RFQ/RFP": ["consultation fournisseurs", "demande de devis", "appel d'offres"],
+      "matrice de Kraljic": ["segmentation fournisseurs", "impact et risque fournisseur"],
+      "single/dual sourcing": ["fournisseur unique", "plusieurs fournisseurs", "diversification fournisseurs"],
+      "contrats-cadres": ["accords commerciaux récurrents", "conditions générales d'achat"]
+    },
+    "questions": [
+      "Comment recherchiez-vous et qualifiiez-vous les fournisseurs ?",
+      "Compariez-vous plusieurs offres, devis ou propositions techniques ?",
+      "Quels coûts, risques et conditions contractuelles analysiez-vous ?"
+    ]
+  },
+  "supply_chain": {
+    "label": "Supply Chain",
+    "aliases": ["supply chain", "logistique", "approvisionnement", "adv", "import-export", "transport"],
+    "layers": {
+      "concepts": ["Incoterms", "OTIF", "MOQ", "FIFO", "Lead Time", "SLA", "import-export"],
+      "actions": ["approvisionner", "planifier", "coordonner", "optimiser", "superviser"],
+      "objects": ["stocks", "flux", "transport", "entrepôts", "commandes"],
+      "results": ["réduction des ruptures", "réduction des coûts de stockage", "amélioration du taux de service"]
+    },
+    "evidence_signals": {
+      "OTIF": ["livré à l'heure et en totalité", "ponctualité des livraisons", "taux de service"],
+      "MOQ": ["quantité minimale de commande", "minimum de commande"],
+      "Lead Time": ["délai d'approvisionnement", "délai entre commande et réception"],
+      "SLA": ["niveau de service", "engagement de service"],
+      "Incoterms": ["FCA", "CPT", "DAP"]
+    },
+    "questions": [
+      "Quels stocks, commandes ou flux suiviez-vous au quotidien ?",
+      "Mesuriez-vous les délais, ruptures ou niveaux de service ?",
+      "Quels transports, Incoterms ou contraintes d'approvisionnement gériez-vous ?"
+    ]
+  },
+  "finance": {
+    "label": "Finance",
+    "aliases": ["finance", "financier", "contrôle financier", "risk", "risque"],
+    "layers": {
+      "concepts": ["EBITDA", "cash-flow", "BFR", "ROI", "P&L"],
+      "actions": ["analyser", "arbitrer", "valoriser", "budgéter", "modéliser"],
+      "objects": ["marge", "cash", "budget", "revenus", "investissements"],
+      "results": ["amélioration de la rentabilité", "optimisation du cash-flow", "réduction de l'exposition au risque"]
+    },
+    "questions": [
+      "Suiviez-vous des marges, budgets ou prévisions ?",
+      "Analysiez-vous la rentabilité ou le risque d'opérations ?",
+      "Participiez-vous à des décisions d'investissement ou d'allocation budgétaire ?"
+    ]
+  },
+  "management_control": {
+    "label": "Contrôle de Gestion",
+    "aliases": ["contrôle de gestion", "controle de gestion", "gestion", "performance"],
+    "layers": {
+      "concepts": ["KPI", "budget", "forecast", "écart", "tableau de bord"],
+      "actions": ["piloter", "contrôler", "analyser", "reporter", "améliorer"],
+      "objects": ["performance", "coûts", "planning", "activité", "indicateurs"],
+      "results": ["amélioration de la performance", "fiabilisation du reporting", "réduction des écarts"]
+    },
+    "questions": [
+      "Quels KPI ou indicateurs suiviez-vous ?",
+      "Produisiez-vous des reportings ou tableaux de bord ?",
+      "Quels écarts, coûts ou plans d'action analysiez-vous ?"
+    ]
+  },
+  "data_analytics": {
+    "label": "Data Analyst",
+    "aliases": ["data analyst", "data", "analytics", "business intelligence", "bi", "sql"],
+    "layers": {
+      "concepts": ["KPI", "data quality", "analyse exploratoire", "modèle de données", "visualisation"],
+      "actions": ["extraire", "nettoyer", "analyser", "modéliser", "visualiser"],
+      "objects": ["données", "requêtes SQL", "tableaux de bord", "reportings", "indicateurs"],
+      "results": ["fiabilisation des données", "automatisation du reporting", "amélioration de la décision"]
+    },
+    "questions": [
+      "Avez-vous utilisé Excel, SQL, Python ou des outils BI ?",
+      "Créiez-vous des reportings ou des tableaux de bord ?",
+      "Quelles données et analyses de performance suiviez-vous au quotidien ?"
+    ]
+  },
+  "business_analysis": {
+    "label": "Business Analyst",
+    "aliases": ["business analyst", "analyse métier", "business analysis"],
+    "layers": {
+      "concepts": ["KPI", "business case", "besoin métier", "processus", "recommandation"],
+      "actions": ["recueillir", "analyser", "formaliser", "prioriser", "recommander"],
+      "objects": ["besoins", "processus", "données", "parties prenantes", "solutions"],
+      "results": ["amélioration de la décision", "optimisation des processus", "alignement des parties prenantes"]
+    },
+    "questions": [
+      "Recueilliez-vous et formalisiez-vous des besoins métier ?",
+      "Analysiez-vous des processus ou performances ?",
+      "Présentiez-vous des recommandations à des décideurs ?"
+    ]
+  },
+  "project_management": {
+    "label": "Chef de Projet",
+    "aliases": ["chef de projet", "project manager", "pmo", "projet"],
+    "layers": {
+      "concepts": ["roadmap", "jalons", "risques", "RACI", "livrables"],
+      "actions": ["cadrer", "planifier", "coordonner", "piloter", "livrer"],
+      "objects": ["planning", "budget", "parties prenantes", "actions", "livrables"],
+      "results": ["respect des délais", "maîtrise des risques", "qualité des livrables"]
+    },
+    "questions": [
+      "Quels projets, plannings ou jalons pilotiez-vous ?",
+      "Combien de parties prenantes coordonniez-vous ?",
+      "Quels risques, budgets ou livrables suiviez-vous ?"
+    ]
+  },
+  "operations": {
+    "label": "Opérations",
+    "aliases": ["opérations", "operations", "coordinateur", "coordination"],
+    "layers": {
+      "concepts": ["KPI", "SLA", "processus", "qualité", "amélioration continue"],
+      "actions": ["coordonner", "standardiser", "suivre", "optimiser", "résoudre"],
+      "objects": ["activité", "incidents", "processus", "équipes", "prestataires"],
+      "results": ["amélioration de la qualité", "réduction des délais", "fiabilisation des opérations"]
+    },
+    "questions": [
+      "Quels processus ou opérations coordonniez-vous ?",
+      "Quels KPI, incidents ou niveaux de service suiviez-vous ?",
+      "Quelles améliorations avez-vous mises en place ?"
+    ]
+  },
+  "adv": {
+    "label": "ADV",
+    "aliases": ["adv", "administration des ventes", "gestionnaire adv", "service client"],
+    "layers": {
+      "concepts": ["SLA", "order-to-cash", "litiges", "facturation", "taux de service"],
+      "actions": ["traiter", "coordonner", "facturer", "relancer", "fiabiliser"],
+      "objects": ["commandes", "clients", "factures", "délais", "litiges"],
+      "results": ["amélioration du service client", "réduction des litiges", "fiabilisation des commandes"]
+    },
+    "questions": [
+      "Combien de commandes ou clients suiviez-vous ?",
+      "Gériez-vous la facturation, les litiges ou les relances ?",
+      "Quels délais et niveaux de service deviez-vous respecter ?"
+    ]
+  }
+}

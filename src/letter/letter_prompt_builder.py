@@ -103,6 +103,8 @@ CONTRAINTE ABSOLUE:
   - vague 4 : risques opérationnels.
 - Une bonne phrase métier doit idéalement combiner 2 à 4 vagues, par exemple domaine + processus + outil/document + risque.
 - N'empile pas les termes : chaque terme précis doit servir une preuve ou un enjeu clair.
+- Utilise `application_context.career_translation_context.supported_terms` comme vocabulaire candidat prouvé.
+- Les termes de `application_context.career_translation_context.unsupported_terms` peuvent décrire l'enjeu du poste, jamais une compétence déjà exercée.
 - Les termes de vague 3 ou 4 absents du CV mais présents dans l'offre peuvent être utilisés comme contraintes du poste.
 - Les termes de vague 3 ou 4 absents du CV et de l'offre peuvent seulement montrer une compréhension prudente du métier.
 - La motivation entreprise doit être plus précise que "organisation reconnue" : utilise les faits autorisés, le vocabulaire officiel et le lien avec le poste.

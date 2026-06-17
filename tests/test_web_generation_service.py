@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -123,6 +124,45 @@ def test_generation_service_rejects_concurrent_web_run(tmp_path):
     thread.join(timeout=3)
 
 
+def test_generation_service_can_cancel_active_default_subprocess(tmp_path):
+    script = tmp_path / "run_menu.py"
+    script.write_text(
+        "import sys, time\n"
+        "sys.stdin.read()\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    service = GenerationService(
+        project_root=tmp_path,
+        packs_dir=tmp_path / "packs",
+        current_result_dir=tmp_path / "current",
+    )
+    service.reference_status_provider = lambda: _statuses("master_profile", "cv_template")
+    result = {}
+
+    def run_generation():
+        try:
+            service.run("cv", "Offre")
+        except GenerationError as exc:
+            result["error"] = str(exc)
+
+    thread = threading.Thread(target=run_generation)
+    thread.start()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        with service._state_lock:
+            process = service._current_process
+        if process is not None:
+            break
+        time.sleep(0.05)
+
+    assert service.cancel_current() is True
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert result["error"] == "Génération annulée."
+
+
 def test_generation_service_uses_current_python_interpreter(tmp_path):
     captured = {}
     pack = _pack(tmp_path / "packs")
@@ -140,9 +180,10 @@ def test_generation_service_uses_current_python_interpreter(tmp_path):
     service.reference_status_provider = lambda: _statuses("master_profile", "cv_template")
     service._latest_pack_after = lambda started_at: pack
 
-    service.run("cv", "Offre")
+    service.run("cv", "Offre", "acoustic_engineering")
 
     assert captured["args"][0] == sys.executable
+    assert captured["env"]["RESUMEFORGE_TARGET_DOMAIN"] == "acoustic_engineering"
 
 
 def test_generation_service_surfaces_menu_error_when_no_pack_is_created(tmp_path):

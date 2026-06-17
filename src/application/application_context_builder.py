@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import json
+import os
 import re
 
 from src.application.domain_vocabulary import load_domain_vocabulary
 from src.application.document_language import detect_document_language
+from src.application.career_translation import build_translation_context, resolve_target_domain
 
 
 def _read_text(path: str | Path) -> str:
@@ -58,6 +60,15 @@ def build_application_context(
 
     job_family = _infer_job_family(parsed_job)
     domain_vocabulary = load_domain_vocabulary(job_family)
+    resolved_domain = resolve_target_domain(
+        job_description,
+        os.getenv("RESUMEFORGE_TARGET_DOMAIN", "").strip(),
+    )
+    career_translation_context = build_translation_context(
+        cv_markdown,
+        resolved_domain["key"],
+        domain_model=resolved_domain["model"],
+    )
 
     context = {
         "schema_version": "1.0",
@@ -73,6 +84,8 @@ def build_application_context(
         "job_url": parsed_job.get("job_url", ""),
         "job_family": job_family,
         "domain_vocabulary": domain_vocabulary,
+        "career_translation_domain": resolved_domain["key"],
+        "career_translation_context": career_translation_context,
         "job_description": job_description,
         "document_language": report.get("document_language") or detect_document_language(job_description),
         "job_keywords": parsed_job.get("keywords", [])[:80],

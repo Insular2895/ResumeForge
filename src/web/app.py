@@ -1,25 +1,36 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
-from src.web import experience_intake, prompt_overrides, reference_manager
+from src.application.career_translation import assess_profile_for_job, load_career_domains
+from src.application import experience_memory
+from src.web import document_preview, experience_intake, onlyoffice_integration, prompt_overrides, reference_manager
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 WEB_DIR = Path(__file__).resolve().parent
-HOST = "127.0.0.1"
+load_dotenv(ROOT_DIR / ".env")
+
+HOST = os.environ.get("RESUMEFORGE_HOST", "127.0.0.1")
 PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
-load_dotenv(ROOT_DIR / ".env")
+PREVIEW_DIR = OUTPUT_DIR / "web_previews"
+FINAL_EXPORT_DIR = OUTPUT_DIR / "web_final_exports"
+ONLYOFFICE_SESSION_DIR = OUTPUT_DIR / "onlyoffice_sessions"
+ONLYOFFICE_EXPORT_DIR = OUTPUT_DIR / "onlyoffice_final_exports"
+ONLYOFFICE_DOCUMENT_SERVER_URL = "http://127.0.0.1:8080"
+ONLYOFFICE_PUBLIC_APP_URL = "http://host.docker.internal:8765"
+ONLYOFFICE_CLIENT_EVENTS: list[dict] = []
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -31,14 +42,83 @@ SERVICE = GenerationService(
 )
 
 
+def _proxy_port() -> str:
+    document_server_url = os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL", "")
+    if "/onlyoffice-ds" not in document_server_url:
+        return ""
+    return os.environ.get("RESUMEFORGE_PROXY_PORT", "8766")
+
+
+@app.middleware("http")
+async def redirect_direct_localhost_to_proxy(request: Request, call_next):
+    proxy_port = _proxy_port()
+    host = request.headers.get("host", "")
+    if proxy_port and host.endswith(f":{PORT}") and request.method == "GET":
+        target = request.url.replace(netloc=host.rsplit(":", 1)[0] + f":{proxy_port}")
+        return RedirectResponse(str(target), status_code=307)
+    return await call_next(request)
+
+
 def _context(request: Request, **extra) -> dict:
+    document_server_url = str(
+        extra.pop("document_server_url", None)
+        or os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL")
+        or ONLYOFFICE_DOCUMENT_SERVER_URL
+    ).rstrip("/")
     return {
         "request": request,
         "references": reference_manager.get_reference_statuses(),
         "cv_prompt": prompt_overrides.load_override("cv") or "",
         "lm_prompt": prompt_overrides.load_override("lm") or "",
+        "career_domains": load_career_domains(),
+        "experience_options": experience_memory.experience_options(),
+        "document_server_url": document_server_url,
         **extra,
     }
+
+
+def _onlyoffice_context(request: Request, session: dict, **extra) -> dict:
+    document_server_url = str(
+        extra.pop("document_server_url", None)
+        or os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL")
+        or ONLYOFFICE_DOCUMENT_SERVER_URL
+    ).rstrip("/")
+    public_app_url = str(
+        extra.pop("public_app_url", None)
+        or os.environ.get("ONLYOFFICE_PUBLIC_APP_URL")
+        or ONLYOFFICE_PUBLIC_APP_URL
+    ).rstrip("/")
+    return _context(
+        request,
+        onlyoffice=session,
+        onlyoffice_configs=onlyoffice_integration.build_editor_configs(session, app_base_url=public_app_url),
+        document_server_url=document_server_url,
+        public_app_url=public_app_url,
+        **extra,
+    )
+
+
+@app.post("/onlyoffice/client-events")
+async def onlyoffice_client_event(request: Request):
+    payload = await request.json()
+    event = {
+        "event": str(payload.get("event", ""))[:80],
+        "session_id": str(payload.get("session_id", ""))[:80],
+        "kind": str(payload.get("kind", ""))[:20],
+        "url": str(payload.get("url", ""))[:500],
+        "api_url": str(payload.get("api_url", ""))[:500],
+        "frame_url": str(payload.get("frame_url", ""))[:800],
+        "user_agent": str(payload.get("user_agent", ""))[:500],
+        "message": str(payload.get("message", ""))[:1000],
+    }
+    ONLYOFFICE_CLIENT_EVENTS.append(event)
+    del ONLYOFFICE_CLIENT_EVENTS[:-100]
+    return JSONResponse({"ok": True})
+
+
+@app.get("/onlyoffice/client-events")
+def onlyoffice_client_events():
+    return JSONResponse({"events": ONLYOFFICE_CLIENT_EVENTS[-100:]})
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -47,10 +127,38 @@ def home(request: Request):
 
 
 @app.post("/generate", response_class=HTMLResponse)
-def generate(request: Request, mode: str = Form(...), job_text: str = Form(...)):
+def generate(
+    request: Request,
+    mode: str = Form(...),
+    job_text: str = Form(...),
+    target_domain: str = Form(""),
+):
+    coverage = assess_profile_for_job(job_text, target_domain)
+    if coverage["status"] == "enrichment_required":
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                coverage=coverage,
+                selected_mode=mode,
+                selected_target_domain=coverage["target_domain"],
+                job_text=job_text,
+            ),
+        )
     try:
-        result = SERVICE.run(mode, job_text)
-        return templates.TemplateResponse(request, "index.html", _context(request, result=result))
+        result = SERVICE.run(mode, job_text, coverage["target_domain"], replace_existing=True)
+        onlyoffice = onlyoffice_integration.create_onlyoffice_session(result.pack_dir, ONLYOFFICE_SESSION_DIR)
+        return templates.TemplateResponse(
+            request,
+            "onlyoffice.html",
+            _onlyoffice_context(
+                request,
+                onlyoffice,
+                result=result,
+                selected_target_domain=coverage["target_domain"],
+            ),
+        )
     except GenerationBusyError as exc:
         return templates.TemplateResponse(
             request,
@@ -63,6 +171,75 @@ def generate(request: Request, mode: str = Form(...), job_text: str = Form(...))
             request,
             "index.html",
             _context(request, error=str(exc), selected_mode=mode, job_text=job_text),
+            status_code=400,
+        )
+
+
+@app.post("/enrichment/confirm", response_class=HTMLResponse)
+def confirm_enrichment(
+    request: Request,
+    mode: str = Form(...),
+    job_text: str = Form(...),
+    target_domain: str = Form(...),
+    experience_id: str = Form(""),
+    free_text: str = Form(""),
+    question: list[str] = Form(default=[]),
+    answer: list[str] = Form(default=[]),
+):
+    try:
+        experience_memory.add_validated_memory(
+            {
+                "experience_id": experience_id,
+                "target_domain": target_domain,
+                "free_text": free_text,
+                "qa_pairs": [
+                    {"question": item_question, "answer": item_answer}
+                    for item_question, item_answer in zip(question, answer)
+                    if item_answer.strip()
+                ],
+            }
+        )
+        coverage = assess_profile_for_job(job_text, target_domain)
+        if coverage["status"] == "enrichment_required":
+            return templates.TemplateResponse(
+                request,
+                "index.html",
+                _context(
+                    request,
+                    coverage=coverage,
+                    selected_mode=mode,
+                    selected_target_domain=target_domain,
+                    job_text=job_text,
+                ),
+            )
+        result = SERVICE.run(mode, job_text, target_domain, replace_existing=True)
+        onlyoffice = onlyoffice_integration.create_onlyoffice_session(result.pack_dir, ONLYOFFICE_SESSION_DIR)
+        return templates.TemplateResponse(
+            request,
+            "onlyoffice.html",
+            _onlyoffice_context(
+                request,
+                onlyoffice,
+                result=result,
+                selected_mode=mode,
+                selected_target_domain=target_domain,
+                job_text=job_text,
+            ),
+        )
+    except (ValueError, GenerationError) as exc:
+        coverage = assess_profile_for_job(job_text, target_domain)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                error=str(exc),
+                coverage=coverage,
+                selected_mode=mode,
+                selected_target_domain=target_domain,
+                job_text=job_text,
+                enrichment_free_text=free_text,
+            ),
             status_code=400,
         )
 
@@ -155,7 +332,7 @@ def confirm_experience(
         )
 
     try:
-        result = SERVICE.run(mode, job_text)
+        result = SERVICE.run(mode, job_text, replace_existing=True)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -214,3 +391,98 @@ def download_current():
     if not archives:
         raise GenerationError("Aucun pack courant à télécharger.")
     return FileResponse(archives[0], filename=archives[0].name, media_type="application/zip")
+
+
+@app.get("/preview/{preview_id}", response_class=HTMLResponse)
+def preview_documents(request: Request, preview_id: str):
+    try:
+        preview = document_preview.load_preview_session(preview_id, PREVIEW_DIR)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, error=str(exc)),
+            status_code=404,
+        )
+    return templates.TemplateResponse(request, "preview.html", _context(request, preview=preview))
+
+
+@app.post("/preview/{preview_id}/export")
+def export_preview_documents(
+    preview_id: str,
+    cv_edited: str = Form(""),
+    cv_is_dirty: bool = Form(False),
+    lm_edited: str = Form(""),
+    lm_is_dirty: bool = Form(False),
+):
+    zip_path = document_preview.export_final_zip(
+        preview_id,
+        PREVIEW_DIR,
+        FINAL_EXPORT_DIR,
+        cv_edited=cv_edited,
+        cv_is_dirty=cv_is_dirty,
+        lm_edited=lm_edited,
+        lm_is_dirty=lm_is_dirty,
+    )
+    return FileResponse(
+        zip_path,
+        filename="ResumeForge_documents_finaux.zip",
+        media_type="application/zip",
+    )
+
+
+@app.get("/onlyoffice/{session_id}", response_class=HTMLResponse)
+def onlyoffice_documents(request: Request, session_id: str):
+    try:
+        session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, error=str(exc)),
+            status_code=404,
+        )
+    return templates.TemplateResponse(request, "onlyoffice.html", _onlyoffice_context(request, session))
+
+
+@app.get("/onlyoffice/sessions/{session_id}/files/{filename}")
+def onlyoffice_file(session_id: str, filename: str):
+    session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
+    allowed = {document["filename"] for document in session["documents"].values()}
+    if filename not in allowed:
+        return JSONResponse({"error": "Document introuvable."}, status_code=404)
+    path = ONLYOFFICE_SESSION_DIR / session_id / filename
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+@app.post("/onlyoffice/sessions/{session_id}/callback/{kind}")
+async def onlyoffice_callback(session_id: str, kind: str, request: Request):
+    payload = await request.json()
+    try:
+        result = onlyoffice_integration.handle_callback(
+            session_id,
+            kind,
+            payload,
+            session_root=ONLYOFFICE_SESSION_DIR,
+        )
+    except ValueError:
+        return JSONResponse({"error": 1})
+    return JSONResponse(result)
+
+
+@app.get("/onlyoffice/sessions/{session_id}/export")
+def onlyoffice_export(session_id: str):
+    zip_path = onlyoffice_integration.export_onlyoffice_zip(
+        session_id,
+        ONLYOFFICE_SESSION_DIR,
+        ONLYOFFICE_EXPORT_DIR,
+    )
+    return FileResponse(
+        zip_path,
+        filename="ResumeForge_documents_finaux.zip",
+        media_type="application/zip",
+    )

@@ -1,0 +1,41 @@
+{
+  "name": "resumeforge-editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:editor": "vite build",
+    "typecheck:editor": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tiptap/pm": "^3.14.0",
+    "@tiptap/react": "^3.14.0",
+    "@tiptap/starter-kit": "^3.14.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.16"
+  },
+  "version": "1.0.0",
+  "description": "<div align=\"center\">",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Insular2895/ResumeForge.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Insular2895/ResumeForge/issues"
+  },
+  "homepage": "https://github.com/Insular2895/ResumeForge#readme"
+}

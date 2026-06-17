@@ -309,14 +309,11 @@ def select_top_experiences(experiences_df, job_text, max_items=2):
             _get_dates(row_dict),
             _safe_get(row_dict, "industry_tags"),
             _safe_get(row_dict, "job_family_tags"),
-            _safe_get(row_dict, "context"),
             _safe_get(row_dict, "truth_bullets"),
             _safe_get(row_dict, "bullets"),
             _safe_get(row_dict, "selected_bullets"),
             _safe_get(row_dict, "tools_verified"),
             _safe_get(row_dict, "skills_verified"),
-            _safe_get(row_dict, "skills_transferable"),
-            _safe_get(row_dict, "skills_exposed"),
             _safe_get(row_dict, "kpis_verified"),
             _safe_get(row_dict, "evidence"),
         ]
@@ -383,7 +380,6 @@ def select_top_leadership(leadership_df, job_text, max_items=1):
             _safe_get(row_dict, "truth_bullets"),
             _safe_get(row_dict, "selected_bullets"),
             _safe_get(row_dict, "skills_verified"),
-            _safe_get(row_dict, "skills_transferable"),
             _safe_get(row_dict, "industry_tags"),
             _safe_get(row_dict, "job_family_tags"),
         ]

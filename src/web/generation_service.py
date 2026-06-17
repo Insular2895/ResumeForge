@@ -149,13 +149,61 @@ class GenerationService:
         project_root: str | Path,
         packs_dir: str | Path,
         current_result_dir: str | Path,
-        runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+        runner: Callable[..., subprocess.CompletedProcess] | None = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.packs_dir = Path(packs_dir)
         self.current_result_dir = Path(current_result_dir)
         self.runner = runner
         self.reference_status_provider = get_reference_statuses
+        self._state_lock = threading.Lock()
+        self._current_process: subprocess.Popen | None = None
+        self._cancel_requested = False
+
+    def cancel_current(self) -> bool:
+        with self._state_lock:
+            self._cancel_requested = True
+            process = self._current_process
+        if process and process.poll() is None:
+            process.terminate()
+            return True
+        return False
+
+    def _run_menu(self, *, args, cwd, input, text, capture_output, timeout, check, env) -> subprocess.CompletedProcess:
+        if self.runner is not None:
+            return self.runner(
+                args=args,
+                cwd=cwd,
+                input=input,
+                text=text,
+                capture_output=capture_output,
+                timeout=timeout,
+                check=check,
+                env=env,
+            )
+
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE if capture_output else None,
+            stderr=subprocess.PIPE if capture_output else None,
+            text=text,
+            env=env,
+        )
+        with self._state_lock:
+            self._current_process = process
+        try:
+            stdout, stderr = process.communicate(input=input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
+        finally:
+            with self._state_lock:
+                if self._current_process is process:
+                    self._current_process = None
+        return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=stdout, stderr=stderr)
 
     def _latest_pack_after(self, started_at: float) -> Path:
         candidates = [
@@ -181,17 +229,24 @@ class GenerationService:
             return "La génération a échoué. Consulte le terminal local pour le diagnostic."
         return ""
 
-    def run(self, mode: str, job_text: str) -> GenerationResult:
+    def run(self, mode: str, job_text: str, target_domain: str = "", *, replace_existing: bool = False) -> GenerationResult:
         load_dotenv(self.project_root / ".env")
         validate_mode_request(mode, job_text, self.reference_status_provider(), dict(os.environ))
 
-        if not self._run_lock.acquire(blocking=False):
+        if replace_existing:
+            if not self._run_lock.acquire(blocking=False):
+                self.cancel_current()
+                if not self._run_lock.acquire(timeout=15):
+                    raise GenerationBusyError("La génération précédente est encore en cours d'arrêt.")
+        elif not self._run_lock.acquire(blocking=False):
             raise GenerationBusyError("Une génération web est déjà en cours.")
 
         try:
+            with self._state_lock:
+                self._cancel_requested = False
             self.packs_dir.mkdir(parents=True, exist_ok=True)
             started_at = time.time()
-            completed = self.runner(
+            completed = self._run_menu(
                 args=[sys.executable, "run_menu.py", "--quiet"],
                 cwd=self.project_root,
                 input=build_menu_input(mode, job_text),
@@ -199,7 +254,12 @@ class GenerationService:
                 capture_output=True,
                 timeout=900,
                 check=False,
+                env={**os.environ, "RESUMEFORGE_TARGET_DOMAIN": target_domain},
             )
+            with self._state_lock:
+                was_cancelled = self._cancel_requested
+            if was_cancelled:
+                raise GenerationError("Génération annulée.")
             runner_error = self._runner_error(completed)
             if runner_error:
                 raise GenerationError(runner_error)

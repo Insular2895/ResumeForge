@@ -23,6 +23,9 @@ src/.venv/
 venv/
 env/
 
+# Dépendances frontend locales
+node_modules/
+
 # Cache Python
 __pycache__/
 *.pyc

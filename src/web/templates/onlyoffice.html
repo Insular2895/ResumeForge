@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ResumeForge · Éditeur DOCX</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script type="application/json" id="onlyoffice-configs">{{ onlyoffice_configs | tojson }}</script>
+    <script type="application/json" id="onlyoffice-api-url">{{ (document_server_url ~ '/web-apps/apps/api/documents/api.js') | tojson }}</script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Éditeur DOCX</h1>
+          <p>Modifie le vrai fichier Word généré : photo, styles, tableaux et mise en forme restent dans le DOCX.</p>
+        </div>
+        <a class="button secondary" href="/">Nouvelle génération</a>
+      </header>
+
+      {% if result %}
+      <section class="notice success">
+        <div>
+          <strong>{{ result.ats_score ~ '%' if result.ats_score is not none else 'Documents prêts' }}</strong>
+          <span>{{ result.company }} · {{ result.job_title }}</span>
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="onlyoffice-shell" aria-label="Éditeur bureautique OnlyOffice">
+        <div class="onlyoffice-toolbar">
+          <div class="editor-tabs" role="tablist" aria-label="Documents">
+            {% for kind, document in onlyoffice.documents.items() %}
+            <button
+              type="button"
+              role="tab"
+              data-doc-kind="{{ kind }}"
+              aria-selected="{{ 'true' if loop.first else 'false' }}"
+            >
+              {{ document.label }}
+            </button>
+            {% endfor %}
+          </div>
+          <a class="button primary" href="/onlyoffice/sessions/{{ onlyoffice.session_id }}/export">Télécharger ZIP</a>
+        </div>
+
+        <div class="notice warning onlyoffice-note">
+          <strong>Sauvegarde OnlyOffice</strong>
+          <span>OnlyOffice sauvegarde via callback après fermeture du document ou force-save. Attends quelques secondes avant de télécharger si tu viens de modifier.</span>
+        </div>
+
+        <div id="onlyoffice-browser-warning" class="notice warning onlyoffice-note" hidden>
+          <strong>Navigateur</strong>
+          <span>Sur macOS, l'éditeur OnlyOffice local est plus fiable dans Arc/Chrome ou Firefox. Safari peut rester bloqué sur le chargement du DOCX.</span>
+        </div>
+
+        <div id="onlyoffice-error" class="notice error" hidden>
+          <strong>OnlyOffice indisponible</strong>
+          <span id="onlyoffice-error-message">
+            Lance le Document Server Community sur {{ document_server_url }}.
+            Exemple : docker run -d -p 8080:80 -e JWT_ENABLED=false onlyoffice/documentserver
+          </span>
+        </div>
+
+        <div id="onlyoffice-status" class="notice muted">
+          <strong>Chargement OnlyOffice</strong>
+          <span>Initialisation de l'éditeur DOCX...</span>
+        </div>
+
+        <div id="onlyoffice-editor"></div>
+      </section>
+    </main>
+
+    <script>
+      const configs = JSON.parse(document.getElementById("onlyoffice-configs").textContent);
+      const apiUrl = JSON.parse(document.getElementById("onlyoffice-api-url").textContent);
+      const sessionId = "{{ onlyoffice.session_id }}";
+      const buttons = Array.from(document.querySelectorAll("[data-doc-kind]"));
+      const errorBox = document.getElementById("onlyoffice-error");
+      const errorMessage = document.getElementById("onlyoffice-error-message");
+      const statusBox = document.getElementById("onlyoffice-status");
+      let docEditor = null;
+      let activeKind = buttons[0]?.dataset.docKind || null;
+      let readyTimeout = null;
+      let openAttempt = 0;
+      const maxAutoRetries = 1;
+      const readyTimeoutMs = 60000;
+
+      function sendClientEvent(event, data = {}) {
+        fetch("/onlyoffice/client-events", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            event,
+            session_id: sessionId,
+            kind: activeKind,
+            url: window.location.href,
+            api_url: apiUrl,
+            user_agent: navigator.userAgent,
+            ...data,
+          }),
+        }).catch(() => {});
+      }
+
+      async function clearOnlyOfficeBrowserState() {
+        if (!("serviceWorker" in navigator)) {
+          sendClientEvent("service-worker-unavailable");
+          return;
+        }
+
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          const onlyofficeRegistrations = registrations.filter((registration) => {
+            const scriptUrl = registration.active?.scriptURL || registration.installing?.scriptURL || registration.waiting?.scriptURL || "";
+            return registration.scope.includes("/onlyoffice-ds/") || scriptUrl.includes("document_editor_service_worker.js");
+          });
+
+          await Promise.all(onlyofficeRegistrations.map((registration) => registration.unregister()));
+          if (onlyofficeRegistrations.length) {
+            sendClientEvent("service-worker-unregistered", { count: onlyofficeRegistrations.length });
+          }
+        } catch (error) {
+          sendClientEvent("service-worker-cleanup-error", { message: String(error?.message || error) });
+        }
+      }
+
+      function setStatus(title, message) {
+        statusBox.hidden = false;
+        statusBox.querySelector("strong").textContent = title;
+        statusBox.querySelector("span").textContent = message;
+      }
+
+      function showError(message) {
+        sendClientEvent("show-error", { message });
+        errorMessage.textContent = message;
+        errorBox.hidden = false;
+        statusBox.hidden = true;
+      }
+
+      function showFrameTimeoutError(frameUrl) {
+        sendClientEvent("frame-timeout-final", { frame_url: frameUrl });
+        errorMessage.replaceChildren();
+        errorMessage.append(
+          "OnlyOffice a chargé son API mais l'éditeur ne renvoie pas onAppReady. Le plus probable est un cache/service worker OnlyOffice bloqué dans ce profil navigateur. "
+        );
+
+        const retryButton = document.createElement("button");
+        retryButton.type = "button";
+        retryButton.className = "button small";
+        retryButton.textContent = "Réessayer l'ouverture";
+        retryButton.addEventListener("click", () => openDocument(activeKind, { forceFresh: true }));
+        errorMessage.appendChild(retryButton);
+
+        errorMessage.append(" ");
+
+        const commandButton = document.createElement("button");
+        commandButton.type = "button";
+        commandButton.className = "button small";
+        commandButton.textContent = "Copier commande Arc";
+        commandButton.addEventListener("click", async () => {
+          const command = `open -a "Arc" "${window.location.href}"`;
+          await navigator.clipboard?.writeText(command);
+          commandButton.textContent = "Commande copiée";
+        });
+        errorMessage.appendChild(commandButton);
+
+        errorMessage.append(" Iframe de diagnostic : ");
+        const link = document.createElement("a");
+        link.href = frameUrl;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = frameUrl;
+        errorMessage.appendChild(link);
+        errorBox.hidden = false;
+        statusBox.hidden = true;
+      }
+
+      function hideError() {
+        errorBox.hidden = true;
+      }
+
+      function withEditorEvents(kind, attempt) {
+        const config = typeof structuredClone === "function" ? structuredClone(configs[kind]) : JSON.parse(JSON.stringify(configs[kind]));
+        if (attempt > 0) {
+          const separator = config.document.url.includes("?") ? "&" : "?";
+          config.document.url = `${config.document.url}${separator}rfRetry=${attempt}-${Date.now()}`;
+          config.document.key = `${config.document.key}-retry-${attempt}`;
+        }
+        config.events = {
+          ...(config.events || {}),
+          onAppReady: () => {
+            clearTimeout(readyTimeout);
+            openAttempt = 0;
+            sendClientEvent("onAppReady");
+            setStatus("OnlyOffice prêt", "L'application est chargée, ouverture du document...");
+          },
+          onDocumentReady: () => {
+            clearTimeout(readyTimeout);
+            sendClientEvent("onDocumentReady");
+            hideError();
+            statusBox.hidden = true;
+          },
+          onWarning: (event) => {
+            const warning = event?.data?.message || event?.data || "Avertissement OnlyOffice.";
+            sendClientEvent("onWarning", { message: String(warning) });
+            setStatus("Avertissement OnlyOffice", String(warning));
+          },
+          onError: (event) => {
+            const error = event?.data?.message || event?.data || "Erreur OnlyOffice pendant l'ouverture du document.";
+            sendClientEvent("onError", { message: String(error) });
+            showError(String(error));
+          },
+        };
+        return config;
+      }
+
+      function openDocument(kind, options = {}) {
+        activeKind = kind;
+        if (options.forceFresh) {
+          openAttempt += 1;
+        } else {
+          openAttempt = 0;
+        }
+        if (!window.DocsAPI) {
+          showError(`L'API OnlyOffice n'est pas chargée depuis ${apiUrl}. Vérifie que le serveur répond sur {{ document_server_url }}.`);
+          loadOnlyOfficeApi();
+          return;
+        }
+        if (!configs[kind]) {
+          showError(`Configuration introuvable pour le document "${kind}".`);
+          return;
+        }
+        errorBox.hidden = true;
+        setStatus("Ouverture du document", `Chargement de ${buttons.find((button) => button.dataset.docKind === kind)?.textContent.trim() || kind}...`);
+        buttons.forEach((button) => {
+          button.setAttribute("aria-selected", String(button.dataset.docKind === kind));
+        });
+        if (docEditor && typeof docEditor.destroyEditor === "function") {
+          docEditor.destroyEditor();
+        }
+        clearTimeout(readyTimeout);
+        docEditor = new DocsAPI.DocEditor("onlyoffice-editor", withEditorEvents(kind, openAttempt));
+        const createdFrame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
+        sendClientEvent("iframe-created", { frame_url: createdFrame?.src || "" });
+        readyTimeout = window.setTimeout(() => {
+          const frame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
+          const frameUrl = frame?.src || "URL iframe indisponible";
+          if (openAttempt < maxAutoRetries) {
+            sendClientEvent("frame-timeout-retry", { frame_url: frameUrl });
+            setStatus("Relance OnlyOffice", "Le premier chargement est bloqué, nouvelle tentative avec une session fraîche...");
+            openDocument(kind, { forceFresh: true });
+            return;
+          }
+          showFrameTimeoutError(frameUrl);
+        }, readyTimeoutMs);
+      }
+
+      function loadOnlyOfficeApi() {
+        if (window.DocsAPI?.DocEditor) {
+          openDocument(activeKind);
+          return;
+        }
+        if (document.querySelector("script[data-onlyoffice-api]")) {
+          return;
+        }
+        setStatus("Chargement OnlyOffice", `Connexion à ${apiUrl}...`);
+        sendClientEvent("api-script-start");
+        const script = document.createElement("script");
+        script.dataset.onlyofficeApi = "true";
+        script.src = `${apiUrl}?resumeForge=${Date.now()}`;
+        script.onload = () => {
+          sendClientEvent("api-script-loaded");
+          if (!window.DocsAPI?.DocEditor) {
+            showError("Le script OnlyOffice a été chargé, mais DocsAPI.DocEditor n'est pas disponible.");
+            return;
+          }
+          hideError();
+          openDocument(activeKind);
+        };
+        script.onerror = () => {
+          sendClientEvent("api-script-error");
+          showError(`Impossible de charger l'API OnlyOffice depuis ${apiUrl}. Le serveur Document Server doit être accessible depuis le navigateur.`);
+        };
+        document.head.appendChild(script);
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => openDocument(button.dataset.docKind));
+      });
+
+      const isSafari = /^((?!chrome|chromium|android|firefox|edg|opr).)*safari/i.test(navigator.userAgent);
+      if (isSafari) {
+        document.getElementById("onlyoffice-browser-warning").hidden = false;
+      }
+
+      if (buttons.length) {
+        sendClientEvent("page-loaded");
+        clearOnlyOfficeBrowserState().finally(loadOnlyOfficeApi);
+      }
+    </script>
+  </body>
+</html>
