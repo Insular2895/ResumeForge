@@ -117,7 +117,6 @@ def onlyoffice_health(session_id: str = ""):
         "document_server_url": document_server_url,
         "public_app_url": public_app_url,
         "api_js_url": f"{document_server_url}/web-apps/apps/api/documents/api.js",
-        "cleanup_url": f"{document_server_url}/web-apps/apps/api/documents/resumeforge-sw-cleanup.html",
         "last_client_events": ONLYOFFICE_CLIENT_EVENTS[-10:],
         "sessions_available": [],
         "session_files": [],
@@ -452,6 +451,30 @@ def export_preview_documents(
         filename="ResumeForge_documents_finaux.zip",
         media_type="application/zip",
     )
+
+
+@app.get("/onlyoffice/minimal-test/{session_id}/{kind}", response_class=HTMLResponse)
+def onlyoffice_minimal_test(request: Request, session_id: str, kind: str):
+    try:
+        session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, error=str(exc)),
+            status_code=404,
+        )
+    if kind not in session["documents"]:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, error=f'Document OnlyOffice introuvable pour "{kind}".'),
+            status_code=404,
+        )
+    context = _onlyoffice_context(request, session)
+    context["kind"] = kind
+    context["onlyoffice_config"] = context["onlyoffice_configs"][kind]
+    return templates.TemplateResponse(request, "onlyoffice_minimal.html", context)
 
 
 @app.get("/onlyoffice/{session_id}", response_class=HTMLResponse)

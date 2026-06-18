@@ -15,22 +15,21 @@ iframe, but the editor never called `onAppReady`.
 
 ## Current status after latest fixes
 
-As of commit `0ae1dd1`, the bug is still reproduced in the user's Arc/Chrome
-profile.
+As of the diagnostic branch, the bug is still reproduced in the user's
+Arc/Chrome profile.
 
 The UI still shows:
 
 ```text
 OnlyOffice a chargé son API mais l'éditeur ne renvoie pas onAppReady.
-Le plus probable est un cache/service worker OnlyOffice bloqué dans ce profil navigateur.
-Réessayer l'ouverture
-Copier commande Arc
 Iframe de diagnostic :
 ```
 
-Important: the service-worker hypothesis has not been proven sufficient. The
-branch now includes service-worker cleanup on both relevant origins, but
-`onAppReady` still does not return in the affected user profile.
+Important: the service-worker cleanup hypothesis is now paused. The active
+editor flow intentionally does not call browser cleanup, Document Server
+cleanup, hidden cleanup iframes, proxy fallback, or automatic retries before
+loading OnlyOffice. The goal is to isolate the failure with the smallest
+possible integration.
 
 The latest known failing iframe shape is:
 
@@ -46,14 +45,12 @@ http://127.0.0.1:8080/9.4.0-c54f95469d83a5af565fa3d8f13a0813/web-apps/apps/docum
   &fileType=docx
 ```
 
-Latest observed client event sequence remains:
+Latest observed client event sequence before the minimal reset was:
 
 ```text
 page-loaded
 api-script-start
 api-script-loaded
-iframe-created
-frame-timeout-retry
 iframe-created
 frame-timeout-final
 ```
@@ -113,8 +110,6 @@ page-loaded
 api-script-start
 api-script-loaded
 iframe-created
-frame-timeout-retry
-iframe-created
 frame-timeout-final
 ```
 
@@ -152,22 +147,15 @@ proxy_set_header X-Forwarded-Host $http_host;
 
 ## Current hypothesis
 
-The initial hypothesis was stale browser-profile state from the OnlyOffice
-document editor service worker.
+The active hypothesis is no longer "fix the service worker first". The next
+step is to determine whether the failure comes from:
 
-Earlier local builds used the official OnlyOffice `preload.html` flow. That
-page registers `document_editor_service_worker.js`. In a persistent browser
-profile, that stale service worker can keep intercepting the editor bootstrap
-even after the application code has changed.
+A. the OnlyOffice editor config itself;
+B. the richer ResumeForge editor template;
+C. local Docker networking / `host.docker.internal`;
+D. browser-profile state outside the app's control.
 
-After the default launcher was simplified to load OnlyOffice directly from
-`127.0.0.1:8080`, the parent page at `127.0.0.1:8765` could no longer unregister
-service workers that belong to the `8080` origin. The fix is therefore to serve
-a cleanup page from the OnlyOffice origin itself and let that page unregister
-its own service workers before ResumeForge loads `api.js`.
-
-Because the bug still persists after this cleanup, external diagnosis should
-also inspect:
+External diagnosis should inspect:
 
 - whether OnlyOffice supports being embedded cross-origin from
   `127.0.0.1:8765` while the editor iframe is served from `127.0.0.1:8080`;
@@ -190,10 +178,8 @@ also inspect:
    `http://host.docker.internal:8765`.
 5. Removed the ResumeForge hidden OnlyOffice preload iframe.
 6. Stopped loading `api.js` with `preload=onlyoffice-preload`.
-7. Added browser-side cleanup before opening the editor:
-   - find service workers scoped to `/onlyoffice-ds/`;
-   - unregister them;
-   - then load OnlyOffice `api.js`.
+7. Temporarily removed browser-side and Document Server cleanup from the active
+   editor page. The page now calls `loadOnlyOfficeApi()` directly.
 8. Patched the local Docker launcher to disable OnlyOffice's document editor
    service-worker registration inside the container for local development.
 9. Increased the client-side ready timeout to 60 seconds to reduce false
@@ -202,23 +188,30 @@ also inspect:
    be diagnosed by event sequence and URLs rather than screenshots only.
 11. Added an inline debug panel in the editor page with browser origin,
    `apiUrl`, `document.url`, `callbackUrl`, iframe source and environment URLs.
-12. Added `/web-apps/apps/api/documents/resumeforge-sw-cleanup.html` inside the
-    local OnlyOffice container. ResumeForge loads it in a hidden iframe before
-    `api.js`; it unregisters service workers and clears caches from the
-    `127.0.0.1:8080` origin.
+12. Removed the `resumeforge-sw-cleanup.html` installation and hidden cleanup
+    iframe from the active local mode.
+13. Added a minimal test page:
+    `/onlyoffice/minimal-test/{session_id}/{kind}`.
+    This page contains only `api.js`, one `editor` div,
+    `new DocsAPI.DocEditor(...)`, and `onAppReady` / `onDocumentReady` /
+    `onError` instrumentation.
 
 ## Files of interest
 
 - `src/web/templates/onlyoffice.html`
   - browser event instrumentation;
-  - service-worker cleanup;
   - OnlyOffice script loading;
   - `onAppReady` / `onDocumentReady` callbacks.
+- `src/web/templates/onlyoffice_minimal.html`
+  - pure OnlyOffice bootstrap page;
+  - no cleanup;
+  - no retry;
+  - no proxy logic;
+  - no service-worker diagnostic.
 - `scripts/run_onlyoffice_local.sh`
   - starts Docker services;
   - patches OnlyOffice timeout;
   - disables local service-worker registration;
-  - installs the `resumeforge-sw-cleanup.html` cleanup page;
   - starts ResumeForge directly on `127.0.0.1:8765`.
 - `scripts/nginx-resumeforge-onlyoffice.conf`
   - fallback/reference proxy config only;
@@ -227,6 +220,7 @@ also inspect:
 - `src/web/app.py`
   - `/onlyoffice/client-events`;
   - `/onlyoffice/health`;
+  - `/onlyoffice/minimal-test/{session_id}/{kind}`;
   - OnlyOffice session routes.
 - `src/web/onlyoffice_integration.py`
   - DOCX session creation;
@@ -251,8 +245,15 @@ If the editor still hangs, inspect:
 ```bash
 curl -fsS http://127.0.0.1:8765/onlyoffice/client-events
 curl -fsS http://127.0.0.1:8765/onlyoffice/health
-curl -fsS http://127.0.0.1:8080/web-apps/apps/api/documents/resumeforge-sw-cleanup.html
 docker logs --tail 200 onlyoffice-documentserver
+```
+
+To bypass the ResumeForge editor template and test the smallest possible
+OnlyOffice integration, open the generated session directly:
+
+```text
+http://127.0.0.1:8765/onlyoffice/minimal-test/{session_id}/cv
+http://127.0.0.1:8765/onlyoffice/minimal-test/{session_id}/lm
 ```
 
 ## Open questions for external diagnosis

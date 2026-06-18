@@ -87,11 +87,7 @@
       let docEditor = null;
       let activeKind = buttons[0]?.dataset.docKind || null;
       let readyTimeout = null;
-      let openAttempt = 0;
-      const maxAutoRetries = 1;
       const readyTimeoutMs = 60000;
-      const documentServerOrigin = new URL(apiUrl).origin;
-      const documentServerCleanupUrl = `${documentServerOrigin}/web-apps/apps/api/documents/resumeforge-sw-cleanup.html`;
 
       function sendClientEvent(event, data = {}) {
         fetch("/onlyoffice/client-events", {
@@ -107,71 +103,6 @@
             ...data,
           }),
         }).catch(() => {});
-      }
-
-      async function clearOnlyOfficeBrowserState() {
-        if (!("serviceWorker" in navigator)) {
-          sendClientEvent("service-worker-unavailable");
-          return;
-        }
-
-        try {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          const onlyofficeRegistrations = registrations.filter((registration) => {
-            const scriptUrl = registration.active?.scriptURL || registration.installing?.scriptURL || registration.waiting?.scriptURL || "";
-            return registration.scope.includes("/onlyoffice-ds/") || scriptUrl.includes("document_editor_service_worker.js");
-          });
-
-          await Promise.all(onlyofficeRegistrations.map((registration) => registration.unregister()));
-          if (onlyofficeRegistrations.length) {
-            sendClientEvent("service-worker-unregistered", { count: onlyofficeRegistrations.length });
-          }
-        } catch (error) {
-          sendClientEvent("service-worker-cleanup-error", { message: String(error?.message || error) });
-        }
-      }
-
-      function clearOnlyOfficeDocumentServerState() {
-        return new Promise((resolve) => {
-          const iframe = document.createElement("iframe");
-          let settled = false;
-          const timeout = window.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            iframe.remove();
-            window.removeEventListener("message", handleMessage);
-            sendClientEvent("document-server-cleanup-timeout", { cleanup_url: documentServerCleanupUrl });
-            resolve();
-          }, 5000);
-
-          function finish(eventName, data = {}) {
-            if (settled) return;
-            settled = true;
-            window.clearTimeout(timeout);
-            iframe.remove();
-            window.removeEventListener("message", handleMessage);
-            sendClientEvent(eventName, data);
-            resolve();
-          }
-
-          function handleMessage(event) {
-            if (event.origin !== documentServerOrigin) return;
-            if (event.data?.type !== "resumeforge-onlyoffice-cleanup") return;
-            finish("document-server-cleanup-complete", {
-              ok: String(event.data.ok),
-              registrations: String(event.data.registrations || 0),
-              caches: String(event.data.caches || 0),
-              message: event.data.error || "",
-            });
-          }
-
-          window.addEventListener("message", handleMessage);
-          iframe.hidden = true;
-          iframe.title = "Nettoyage OnlyOffice";
-          iframe.src = `${documentServerCleanupUrl}?resumeForge=${Date.now()}`;
-          iframe.onerror = () => finish("document-server-cleanup-error", { cleanup_url: documentServerCleanupUrl });
-          document.body.appendChild(iframe);
-        });
       }
 
       function setStatus(title, message) {
@@ -191,30 +122,8 @@
         sendClientEvent("frame-timeout-final", { frame_url: frameUrl });
         errorMessage.replaceChildren();
         errorMessage.append(
-          "OnlyOffice a chargé son API mais l'éditeur ne renvoie pas onAppReady. Le plus probable est un cache/service worker OnlyOffice bloqué dans ce profil navigateur. "
+          "OnlyOffice a chargé son API mais l'éditeur ne renvoie pas onAppReady. Le mode minimal local est actif : aucun cleanup service worker, aucun proxy et aucun retry automatique ne sont exécutés. Iframe de diagnostic : "
         );
-
-        const retryButton = document.createElement("button");
-        retryButton.type = "button";
-        retryButton.className = "button small";
-        retryButton.textContent = "Réessayer l'ouverture";
-        retryButton.addEventListener("click", () => openDocument(activeKind, { forceFresh: true }));
-        errorMessage.appendChild(retryButton);
-
-        errorMessage.append(" ");
-
-        const commandButton = document.createElement("button");
-        commandButton.type = "button";
-        commandButton.className = "button small";
-        commandButton.textContent = "Copier commande Arc";
-        commandButton.addEventListener("click", async () => {
-          const command = `open -a "Arc" "${window.location.href}"`;
-          await navigator.clipboard?.writeText(command);
-          commandButton.textContent = "Commande copiée";
-        });
-        errorMessage.appendChild(commandButton);
-
-        errorMessage.append(" Iframe de diagnostic : ");
         const link = document.createElement("a");
         link.href = frameUrl;
         link.target = "_blank";
@@ -240,7 +149,6 @@
           "document.url": config?.document?.url || "—",
           "callbackUrl": config?.editorConfig?.callbackUrl || "—",
           "iframe.src": frame?.src || "pas encore créée",
-          "cleanupUrl": documentServerCleanupUrl,
           "document_server_url": "{{ document_server_url }}",
           "public_app_url": "{{ public_app_url }}",
         };
@@ -252,18 +160,12 @@
         }
       }
 
-      function withEditorEvents(kind, attempt) {
+      function withEditorEvents(kind) {
         const config = typeof structuredClone === "function" ? structuredClone(configs[kind]) : JSON.parse(JSON.stringify(configs[kind]));
-        if (attempt > 0) {
-          const separator = config.document.url.includes("?") ? "&" : "?";
-          config.document.url = `${config.document.url}${separator}rfRetry=${attempt}-${Date.now()}`;
-          config.document.key = `${config.document.key}-retry-${attempt}`;
-        }
         config.events = {
           ...(config.events || {}),
           onAppReady: () => {
             clearTimeout(readyTimeout);
-            openAttempt = 0;
             sendClientEvent("onAppReady");
             setStatus("OnlyOffice prêt", "L'application est chargée, ouverture du document...");
           },
@@ -287,13 +189,8 @@
         return config;
       }
 
-      function openDocument(kind, options = {}) {
+      function openDocument(kind) {
         activeKind = kind;
-        if (options.forceFresh) {
-          openAttempt += 1;
-        } else {
-          openAttempt = 0;
-        }
         if (!window.DocsAPI) {
           showError(`L'API OnlyOffice n'est pas chargée depuis ${apiUrl}. Vérifie que le serveur répond sur {{ document_server_url }}.`);
           loadOnlyOfficeApi();
@@ -312,7 +209,7 @@
           docEditor.destroyEditor();
         }
         clearTimeout(readyTimeout);
-        docEditor = new DocsAPI.DocEditor("onlyoffice-editor", withEditorEvents(kind, openAttempt));
+        docEditor = new DocsAPI.DocEditor("onlyoffice-editor", withEditorEvents(kind));
         updateDebugPanel();
         const createdFrame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
         sendClientEvent("iframe-created", { frame_url: createdFrame?.src || "" });
@@ -320,12 +217,6 @@
         readyTimeout = window.setTimeout(() => {
           const frame = document.querySelector("#onlyoffice-editor iframe, iframe[name='frameEditor']");
           const frameUrl = frame?.src || "URL iframe indisponible";
-          if (openAttempt < maxAutoRetries) {
-            sendClientEvent("frame-timeout-retry", { frame_url: frameUrl });
-            setStatus("Relance OnlyOffice", "Le premier chargement est bloqué, nouvelle tentative avec une session fraîche...");
-            openDocument(kind, { forceFresh: true });
-            return;
-          }
           showFrameTimeoutError(frameUrl);
         }, readyTimeoutMs);
       }
@@ -373,10 +264,7 @@
 
       if (buttons.length) {
         sendClientEvent("page-loaded");
-        Promise.all([
-          clearOnlyOfficeBrowserState(),
-          clearOnlyOfficeDocumentServerState(),
-        ]).finally(loadOnlyOfficeApi);
+        loadOnlyOfficeApi();
         updateDebugPanel();
       }
     </script>

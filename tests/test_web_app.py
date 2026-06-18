@@ -189,20 +189,22 @@ def test_generate_route_opens_onlyoffice_after_success(tmp_path, monkeypatch):
     assert "showFrameTimeoutError" in response.text
     assert "preload=onlyoffice-preload" not in response.text
     assert "readyTimeoutMs = 60000" in response.text
-    assert "cache/service worker OnlyOffice bloqué" in response.text
-    assert "maxAutoRetries = 1" in response.text
-    assert "Réessayer l'ouverture" in response.text
-    assert "Copier commande Arc" in response.text
+    assert "cleanup service worker" in response.text
+    assert "maxAutoRetries" not in response.text
+    assert "Réessayer l'ouverture" not in response.text
+    assert "Copier commande Arc" not in response.text
     assert "/onlyoffice/client-events" in response.text
     assert "sendClientEvent" in response.text
-    assert "clearOnlyOfficeBrowserState" in response.text
-    assert "service-worker-unregistered" in response.text
+    assert "clearOnlyOfficeBrowserState" not in response.text
+    assert "service-worker-unregistered" not in response.text
     assert "Debug OnlyOffice" in response.text
     assert "updateDebugPanel" in response.text
-    assert "clearOnlyOfficeDocumentServerState" in response.text
-    assert "document-server-cleanup-complete" in response.text
-    assert "web-apps/apps/api/documents/resumeforge-sw-cleanup.html" in response.text
-    assert "cleanupUrl" in response.text
+    assert "clearOnlyOfficeDocumentServerState" not in response.text
+    assert "document-server-cleanup-complete" not in response.text
+    assert "web-apps/apps/api/documents/resumeforge-sw-cleanup.html" not in response.text
+    assert "cleanupUrl" not in response.text
+    assert "Promise.all" not in response.text
+    assert "loadOnlyOfficeApi();" in response.text
     assert "document.url" in response.text
     assert "callbackUrl" in response.text
     assert "onlyoffice-browser-warning" in response.text
@@ -239,10 +241,46 @@ def test_onlyoffice_health_route_reports_urls_and_session_files(tmp_path, monkey
     assert payload["document_server_url"] == "http://127.0.0.1:8080"
     assert payload["public_app_url"] == "http://host.docker.internal:8765"
     assert payload["api_js_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js"
-    assert payload["cleanup_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/resumeforge-sw-cleanup.html"
+    assert "cleanup_url" not in payload
     assert payload["last_client_events"] == [{"event": "onAppReady"}]
     assert payload["sessions_available"] == ["session123"]
     assert payload["session_files"] == [{"name": "CV_Lucas_Pertusa.docx", "size": 4}]
+
+
+def test_onlyoffice_minimal_test_route_is_pure_editor_bootstrap(monkeypatch):
+    session = {
+        "session_id": "office123",
+        "documents": {
+            "cv": {"label": "CV", "filename": "CV_Lucas_Pertusa.docx", "key": "cv-key"},
+        },
+    }
+    config = {
+        "document": {
+            "url": "http://host.docker.internal:8765/onlyoffice/sessions/office123/files/CV_Lucas_Pertusa.docx",
+            "key": "cv-key",
+        },
+        "editorConfig": {
+            "callbackUrl": "http://host.docker.internal:8765/onlyoffice/sessions/office123/callback/cv",
+        },
+    }
+    monkeypatch.setattr(web_app.onlyoffice_integration, "load_onlyoffice_session", lambda *args: session)
+    monkeypatch.setattr(web_app.onlyoffice_integration, "build_editor_configs", lambda *args, **kwargs: {"cv": config})
+    client = TestClient(web_app.app)
+
+    response = client.get("/onlyoffice/minimal-test/office123/cv")
+
+    assert response.status_code == 200
+    assert "OnlyOffice Minimal Test" in response.text
+    assert "new DocsAPI.DocEditor" in response.text
+    assert "minimal-onAppReady" in response.text
+    assert "minimal-onDocumentReady" in response.text
+    assert "clearOnlyOfficeBrowserState" not in response.text
+    assert "clearOnlyOfficeDocumentServerState" not in response.text
+    assert "resumeforge-sw-cleanup.html" not in response.text
+    assert "Promise.all" not in response.text
+    assert "Réessayer" not in response.text
+    assert "document.url" in response.text
+    assert "callbackUrl" in response.text
 
 
 def test_onlyoffice_client_event_route_records_browser_diagnostics():

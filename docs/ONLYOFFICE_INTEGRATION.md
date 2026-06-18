@@ -18,9 +18,10 @@ Job offer
 ## Local Dependency
 
 > Current diagnostic status: the local OnlyOffice editor can still fail before
-> `onAppReady` in the affected Arc/Chrome profile, even after the proxy,
-> service-worker and cleanup changes. See `docs/ONLYOFFICE_DIAGNOSTIC.md` for
-> the latest failure sequence.
+> `onAppReady` in the affected Arc/Chrome profile. The active local flow is now
+> intentionally minimal: no proxy, no cleanup iframe, no service-worker cleanup
+> before `api.js`. See `docs/ONLYOFFICE_DIAGNOSTIC.md` for the latest failure
+> sequence and the `/onlyoffice/minimal-test/{session_id}/{kind}` route.
 
 Run ONLYOFFICE Docs Community Edition as a separate Document Server:
 
@@ -185,17 +186,15 @@ separate document conversion service.
   Safari. The generated DOCX, photo and Word layout are preserved; the browser
   choice only affects the embedded OnlyOffice web app bootstrap.
 - The local launcher disables the OnlyOffice document editor service worker and
-  ResumeForge does not call the OnlyOffice preload iframe. This avoids stale
-  browser-profile state where `api.js` loads, the iframe is created, but the
-  editor never emits `onAppReady`. The editor page also unregisters old
-  OnlyOffice service workers for `/onlyoffice-ds/` or
-  `document_editor_service_worker.js` before loading `api.js`, so a previously
-  affected Arc/Chrome profile can recover without manual DevTools cleanup.
-  Because the default local setup loads OnlyOffice from `127.0.0.1:8080`, the
-  launcher also installs
-  `/web-apps/apps/api/documents/resumeforge-sw-cleanup.html` inside the Document
-  Server container. ResumeForge loads that page before `api.js`, allowing the
-  `8080` origin to unregister its own service workers and clear caches.
+  ResumeForge does not call the OnlyOffice preload iframe. The active editor
+  page now loads `api.js` directly without browser cleanup, Document Server
+  cleanup, hidden cleanup iframe, proxy fallback, or automatic retry. This keeps
+  the current diagnostic focused on the minimal OnlyOffice config.
+- For a pure bootstrap test, open
+  `/onlyoffice/minimal-test/{session_id}/cv` or
+  `/onlyoffice/minimal-test/{session_id}/lm` after a generation. That page
+  contains only `api.js`, one editor div, `new DocsAPI.DocEditor(...)` and
+  `onAppReady` / `onDocumentReady` / `onError` instrumentation.
 - The editor config disables nonessential bundled plugins, comments, chat,
   macros and spellcheck for the ResumeForge editing flow. This keeps the
   editing surface focused on Word-like DOCX edits and avoids loading plugin
