@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
 from src.application.career_translation import assess_profile_for_job, load_career_domains
 from src.application import experience_memory
-from src.web import document_preview, experience_intake, onlyoffice_integration, prompt_overrides, reference_manager
+from src.web import document_preview, experience_intake, prompt_overrides, reference_manager, template_sessions
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
@@ -26,11 +26,8 @@ PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
 PREVIEW_DIR = OUTPUT_DIR / "web_previews"
 FINAL_EXPORT_DIR = OUTPUT_DIR / "web_final_exports"
-ONLYOFFICE_SESSION_DIR = OUTPUT_DIR / "onlyoffice_sessions"
-ONLYOFFICE_EXPORT_DIR = OUTPUT_DIR / "onlyoffice_final_exports"
-ONLYOFFICE_DOCUMENT_SERVER_URL = "http://127.0.0.1:8080"
-ONLYOFFICE_PUBLIC_APP_URL = "http://host.docker.internal:8765"
-ONLYOFFICE_CLIENT_EVENTS: list[dict] = []
+TEMPLATE_SESSION_DIR = OUTPUT_DIR / "template_sessions"
+TEMPLATE_EXPORT_DIR = OUTPUT_DIR / "template_final_exports"
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -43,11 +40,6 @@ SERVICE = GenerationService(
 
 
 def _context(request: Request, **extra) -> dict:
-    document_server_url = str(
-        extra.pop("document_server_url", None)
-        or os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL")
-        or ONLYOFFICE_DOCUMENT_SERVER_URL
-    ).rstrip("/")
     return {
         "request": request,
         "references": reference_manager.get_reference_statuses(),
@@ -55,92 +47,38 @@ def _context(request: Request, **extra) -> dict:
         "lm_prompt": prompt_overrides.load_override("lm") or "",
         "career_domains": load_career_domains(),
         "experience_options": experience_memory.experience_options(),
-        "document_server_url": document_server_url,
         **extra,
     }
 
 
-def _onlyoffice_context(request: Request, session: dict, **extra) -> dict:
-    document_server_url = str(
-        extra.pop("document_server_url", None)
-        or os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL")
-        or ONLYOFFICE_DOCUMENT_SERVER_URL
-    ).rstrip("/")
-    public_app_url = str(
-        extra.pop("public_app_url", None)
-        or os.environ.get("ONLYOFFICE_PUBLIC_APP_URL")
-        or ONLYOFFICE_PUBLIC_APP_URL
-    ).rstrip("/")
-    return _context(
-        request,
-        onlyoffice=session,
-        onlyoffice_configs=onlyoffice_integration.build_editor_configs(session, app_base_url=public_app_url),
-        document_server_url=document_server_url,
-        public_app_url=public_app_url,
-        **extra,
+def _template_context(request: Request, session: dict, **extra) -> dict:
+    session = dict(session)
+    session.setdefault("warnings", [])
+    session.setdefault("cv_data", {})
+    session.setdefault("lm_data", {})
+    documents = dict(session.get("documents") or {})
+    documents.setdefault("cv", {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""})
+    documents.setdefault(
+        "lm",
+        {
+            "label": "Lettre de motivation",
+            "docx_filename": "Lettre_Motivation_Lucas_Pertusa.docx",
+            "pdf_filename": "",
+        },
     )
+    session["documents"] = documents
+    return _context(request, template_session=session, **extra)
 
 
-@app.post("/onlyoffice/client-events")
-async def onlyoffice_client_event(request: Request):
-    payload = await request.json()
-    event = {
-        "event": str(payload.get("event", ""))[:80],
-        "session_id": str(payload.get("session_id", ""))[:80],
-        "kind": str(payload.get("kind", ""))[:20],
-        "url": str(payload.get("url", ""))[:500],
-        "api_url": str(payload.get("api_url", ""))[:500],
-        "frame_url": str(payload.get("frame_url", ""))[:800],
-        "user_agent": str(payload.get("user_agent", ""))[:500],
-        "message": str(payload.get("message", ""))[:1000],
-    }
-    ONLYOFFICE_CLIENT_EVENTS.append(event)
-    del ONLYOFFICE_CLIENT_EVENTS[:-100]
-    return JSONResponse({"ok": True})
-
-
-@app.get("/onlyoffice/client-events")
-def onlyoffice_client_events():
-    return JSONResponse({"events": ONLYOFFICE_CLIENT_EVENTS[-100:]})
-
-
-@app.get("/onlyoffice/health")
-def onlyoffice_health(session_id: str = ""):
-    document_server_url = str(
-        os.environ.get("ONLYOFFICE_DOCUMENT_SERVER_URL") or ONLYOFFICE_DOCUMENT_SERVER_URL
-    ).rstrip("/")
-    public_app_url = str(
-        os.environ.get("ONLYOFFICE_PUBLIC_APP_URL") or ONLYOFFICE_PUBLIC_APP_URL
-    ).rstrip("/")
-
-    payload: dict = {
-        "document_server_url": document_server_url,
-        "public_app_url": public_app_url,
-        "api_js_url": f"{document_server_url}/web-apps/apps/api/documents/api.js",
-        "last_client_events": ONLYOFFICE_CLIENT_EVENTS[-10:],
-        "sessions_available": [],
-        "session_files": [],
-    }
-
-    if ONLYOFFICE_SESSION_DIR.exists():
-        payload["sessions_available"] = [
-            path.name
-            for path in sorted(ONLYOFFICE_SESSION_DIR.iterdir())
-            if path.is_dir()
-        ]
-
-    if session_id:
-        session_path = ONLYOFFICE_SESSION_DIR / session_id
-        if session_path.exists():
-            payload["session_files"] = [
-                {"name": file_path.name, "size": file_path.stat().st_size}
-                for file_path in sorted(session_path.iterdir())
-                if file_path.is_file()
-            ]
-        else:
-            payload["session_not_found"] = True
-
-    return JSONResponse(payload)
+def _template_updates_from_form(form: dict) -> dict:
+    cv_updates: dict[str, str] = {}
+    lm_updates: dict[str, str] = {}
+    for key, value in form.items():
+        if key.startswith("cv_"):
+            cv_updates[key.removeprefix("cv_")] = str(value)
+        elif key.startswith("lm_"):
+            lm_updates[key.removeprefix("lm_")] = str(value)
+    return {"cv": cv_updates, "lm": lm_updates}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -170,13 +108,13 @@ def generate(
         )
     try:
         result = SERVICE.run(mode, job_text, coverage["target_domain"], replace_existing=True)
-        onlyoffice = onlyoffice_integration.create_onlyoffice_session(result.pack_dir, ONLYOFFICE_SESSION_DIR)
+        template_session = template_sessions.create_template_session(result.pack_dir, TEMPLATE_SESSION_DIR)
         return templates.TemplateResponse(
             request,
-            "onlyoffice.html",
-            _onlyoffice_context(
+            "template_preview.html",
+            _template_context(
                 request,
-                onlyoffice,
+                template_session,
                 result=result,
                 selected_target_domain=coverage["target_domain"],
             ),
@@ -235,13 +173,13 @@ def confirm_enrichment(
                 ),
             )
         result = SERVICE.run(mode, job_text, target_domain, replace_existing=True)
-        onlyoffice = onlyoffice_integration.create_onlyoffice_session(result.pack_dir, ONLYOFFICE_SESSION_DIR)
+        template_session = template_sessions.create_template_session(result.pack_dir, TEMPLATE_SESSION_DIR)
         return templates.TemplateResponse(
             request,
-            "onlyoffice.html",
-            _onlyoffice_context(
+            "template_preview.html",
+            _template_context(
                 request,
-                onlyoffice,
+                template_session,
                 result=result,
                 selected_mode=mode,
                 selected_target_domain=target_domain,
@@ -452,11 +390,10 @@ def export_preview_documents(
         media_type="application/zip",
     )
 
-
-@app.get("/onlyoffice/minimal-test/{session_id}/{kind}", response_class=HTMLResponse)
-def onlyoffice_minimal_test(request: Request, session_id: str, kind: str):
+@app.get("/template-preview/{session_id}", response_class=HTMLResponse)
+def template_preview(request: Request, session_id: str):
     try:
-        session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
+        session = template_sessions.load_template_session(session_id, TEMPLATE_SESSION_DIR)
     except ValueError as exc:
         return templates.TemplateResponse(
             request,
@@ -464,23 +401,18 @@ def onlyoffice_minimal_test(request: Request, session_id: str, kind: str):
             _context(request, error=str(exc)),
             status_code=404,
         )
-    if kind not in session["documents"]:
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            _context(request, error=f'Document OnlyOffice introuvable pour "{kind}".'),
-            status_code=404,
-        )
-    context = _onlyoffice_context(request, session)
-    context["kind"] = kind
-    context["onlyoffice_config"] = context["onlyoffice_configs"][kind]
-    return templates.TemplateResponse(request, "onlyoffice_minimal.html", context)
+    return templates.TemplateResponse(request, "template_preview.html", _template_context(request, session))
 
 
-@app.get("/onlyoffice/{session_id}", response_class=HTMLResponse)
-def onlyoffice_documents(request: Request, session_id: str):
+@app.post("/template-preview/{session_id}/regenerate", response_class=HTMLResponse)
+async def regenerate_template_preview(request: Request, session_id: str):
+    form = await request.form()
     try:
-        session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
+        session = template_sessions.update_template_session(
+            session_id,
+            TEMPLATE_SESSION_DIR,
+            _template_updates_from_form(dict(form)),
+        )
     except ValueError as exc:
         return templates.TemplateResponse(
             request,
@@ -488,44 +420,34 @@ def onlyoffice_documents(request: Request, session_id: str):
             _context(request, error=str(exc)),
             status_code=404,
         )
-    return templates.TemplateResponse(request, "onlyoffice.html", _onlyoffice_context(request, session))
+    return templates.TemplateResponse(request, "template_preview.html", _template_context(request, session))
 
 
-@app.get("/onlyoffice/sessions/{session_id}/files/{filename}")
-def onlyoffice_file(session_id: str, filename: str):
-    session = onlyoffice_integration.load_onlyoffice_session(session_id, ONLYOFFICE_SESSION_DIR)
-    allowed = {document["filename"] for document in session["documents"].values()}
+@app.get("/template-preview/{session_id}/files/{filename}")
+def template_preview_file(session_id: str, filename: str):
+    session = template_sessions.load_template_session(session_id, TEMPLATE_SESSION_DIR)
+    allowed = {
+        document.get("pdf_filename")
+        for document in session.get("documents", {}).values()
+        if document.get("pdf_filename")
+    } | {
+        document.get("docx_filename")
+        for document in session.get("documents", {}).values()
+        if document.get("docx_filename")
+    }
     if filename not in allowed:
         return JSONResponse({"error": "Document introuvable."}, status_code=404)
-    path = ONLYOFFICE_SESSION_DIR / session_id / filename
-    return FileResponse(
-        path,
-        filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
+    path = TEMPLATE_SESSION_DIR / session_id / filename
+    media_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return FileResponse(path, filename=filename, media_type=media_type)
 
 
-@app.post("/onlyoffice/sessions/{session_id}/callback/{kind}")
-async def onlyoffice_callback(session_id: str, kind: str, request: Request):
-    payload = await request.json()
-    try:
-        result = onlyoffice_integration.handle_callback(
-            session_id,
-            kind,
-            payload,
-            session_root=ONLYOFFICE_SESSION_DIR,
-        )
-    except ValueError:
-        return JSONResponse({"error": 1})
-    return JSONResponse(result)
-
-
-@app.get("/onlyoffice/sessions/{session_id}/export")
-def onlyoffice_export(session_id: str):
-    zip_path = onlyoffice_integration.export_onlyoffice_zip(
+@app.get("/template-preview/{session_id}/export")
+def export_template_preview(session_id: str):
+    zip_path = template_sessions.export_template_session_zip(
         session_id,
-        ONLYOFFICE_SESSION_DIR,
-        ONLYOFFICE_EXPORT_DIR,
+        TEMPLATE_SESSION_DIR,
+        TEMPLATE_EXPORT_DIR,
     )
     return FileResponse(
         zip_path,

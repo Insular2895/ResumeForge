@@ -152,7 +152,8 @@ Prérequis :
 
 - Python 3.11 recommandé ;
 - une clé Gemini pour les générations utilisant Gemini ;
-- Word ou LibreOffice uniquement si tu veux modifier les templates DOCX.
+- Word uniquement si tu veux modifier les templates DOCX.
+- LibreOffice est optionnel : il sert seulement à générer la preview PDF locale.
 
 ```bash
 git clone https://github.com/Insular2895/ResumeForge.git
@@ -173,6 +174,17 @@ Puis ouvrir :
 ```text
 http://127.0.0.1:8765
 ```
+
+Après génération, ResumeForge ouvre une prévisualisation DOCX par sections :
+
+- onglets `CV` et `Lettre de motivation` ;
+- preview PDF si LibreOffice headless est disponible ;
+- champs éditables pour les sections texte ;
+- bouton `Régénérer preview` pour recréer DOCX + PDF ;
+- bouton `Télécharger ZIP` pour récupérer les derniers DOCX.
+
+Le MVP ne dépend pas d'OnlyOffice, d'un iframe Document Server, d'un service
+worker ou d'un éditeur Word en ligne.
 
 Au premier lancement, ouvre `Références locales` et ajoute :
 

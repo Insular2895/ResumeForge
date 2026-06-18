@@ -113,14 +113,15 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
         },
     )
     monkeypatch.setattr(
-        web_app.onlyoffice_integration,
-        "create_onlyoffice_session",
+        web_app.template_sessions,
+        "create_template_session",
         lambda pack_dir, session_root: {
-            "session_id": "onlyoffice-enrichment",
-            "documents": {"cv": {"label": "CV", "filename": "CV_Lucas_Pertusa.docx", "key": "key"}},
+            "session_id": "template-enrichment",
+            "cv_data": {},
+            "lm_data": {},
+            "documents": {"cv": {"label": "CV"}},
         },
     )
-    monkeypatch.setattr(web_app.onlyoffice_integration, "build_editor_configs", lambda session, app_base_url: {"cv": {}})
     client = TestClient(web_app.app)
 
     response = client.post(
@@ -142,10 +143,10 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
     assert captured["qa_pairs"] == [{"question": "Créiez-vous des reportings ?", "answer": "Je produisais des reportings."}]
     assert web_app.SERVICE.target_domain == "data_analytics"
     assert "80%" in response.text
-    assert "onlyoffice-enrichment" in response.text
+    assert "template-enrichment" in response.text
 
 
-def test_generate_route_opens_onlyoffice_after_success(tmp_path, monkeypatch):
+def test_generate_route_opens_template_preview_after_success(tmp_path, monkeypatch):
     zip_path = tmp_path / "87% Ipsen - Gestionnaire ADV.zip"
     zip_path.write_bytes(b"zip")
     result = GenerationResult(
@@ -163,147 +164,61 @@ def test_generate_route_opens_onlyoffice_after_success(tmp_path, monkeypatch):
 
     captured = {}
     monkeypatch.setattr(
-        web_app.onlyoffice_integration,
-        "create_onlyoffice_session",
+        web_app.template_sessions,
+        "create_template_session",
         lambda pack_dir, session_root: captured.setdefault(
             "session",
             {
-                "session_id": "office123",
-                "documents": {
-                    "cv": {"label": "CV", "filename": "CV_Lucas_Pertusa.docx", "key": "cv-key"},
-                    "lm": {"label": "Lettre de motivation", "filename": "Lettre_Motivation_Lucas_Pertusa.docx", "key": "lm-key"},
+                "session_id": "template123",
+                "cv_data": {
+                    "name": "Lucas Pertusa",
+                    "title": "Acheteur",
+                    "contact": "Paris",
+                    "profile": "Profil",
+                    "skills": ["Sourcing"],
+                    "experiences": [],
+                    "education": [],
                 },
+                "lm_data": {
+                    "recipient": "Madame, Monsieur,",
+                    "subject": "Objet",
+                    "intro": "Intro",
+                    "body_1": "Body 1",
+                    "body_2": "Body 2",
+                    "closing": "Closing",
+                    "signature": "Lucas Pertusa",
+                },
+                "documents": {
+                    "cv": {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""},
+                    "lm": {"label": "Lettre de motivation", "docx_filename": "Lettre_Motivation_Lucas_Pertusa.docx", "pdf_filename": ""},
+                },
+                "warnings": ["LibreOffice indisponible : preview PDF non générée."],
             },
         ),
     )
-    monkeypatch.setattr(web_app.onlyoffice_integration, "build_editor_configs", lambda session, app_base_url: {"cv": {}, "lm": {}})
 
     response = client.post("/generate", data={"mode": "cv_lm", "job_text": "Offre"})
 
     assert response.status_code == 200
     assert "87%" in response.text
-    assert "Éditeur DOCX" in response.text
-    assert 'id="onlyoffice-editor"' in response.text
-    assert 'id="onlyoffice-api-url"' in response.text
-    assert "loadOnlyOfficeApi" in response.text
-    assert "showFrameTimeoutError" in response.text
-    assert "preload=onlyoffice-preload" not in response.text
-    assert "readyTimeoutMs = 60000" in response.text
-    assert "cleanup service worker" in response.text
-    assert "maxAutoRetries" not in response.text
-    assert "Réessayer l'ouverture" not in response.text
-    assert "Copier commande Arc" not in response.text
-    assert "/onlyoffice/client-events" in response.text
-    assert "sendClientEvent" in response.text
-    assert "clearOnlyOfficeBrowserState" not in response.text
-    assert "service-worker-unregistered" not in response.text
-    assert "Debug OnlyOffice" in response.text
-    assert "updateDebugPanel" in response.text
-    assert "clearOnlyOfficeDocumentServerState" not in response.text
-    assert "document-server-cleanup-complete" not in response.text
-    assert "web-apps/apps/api/documents/resumeforge-sw-cleanup.html" not in response.text
-    assert "cleanupUrl" not in response.text
-    assert "Promise.all" not in response.text
-    assert "loadOnlyOfficeApi();" in response.text
-    assert "document.url" in response.text
-    assert "callbackUrl" in response.text
-    assert "onlyoffice-browser-warning" in response.text
-    assert "office123" in response.text
-    assert captured["session"]["session_id"] == "office123"
+    assert "Prévisualisation DOCX" in response.text
+    assert "Régénérer preview" in response.text
+    assert "Télécharger ZIP" in response.text
+    assert "template123" in response.text
+    assert "OnlyOffice" not in response.text
+    assert "iframe Document Server" not in response.text
+    assert captured["session"]["session_id"] == "template123"
     assert web_app.SERVICE.kwargs["replace_existing"] is True
 
 
-def test_direct_localhost_port_stays_on_app_even_when_proxy_url_is_set(monkeypatch):
-    monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8766/onlyoffice-ds")
+def test_direct_localhost_port_stays_on_app_with_unrelated_env(monkeypatch):
+    monkeypatch.setenv("RESUMEFORGE_UNUSED_URL", "http://127.0.0.1:8766")
     client = TestClient(web_app.app, base_url="http://127.0.0.1:8765")
 
     response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 200
     assert "ResumeForge" in response.text
-
-
-def test_onlyoffice_health_route_reports_urls_and_session_files(tmp_path, monkeypatch):
-    web_app.ONLYOFFICE_CLIENT_EVENTS.clear()
-    web_app.ONLYOFFICE_CLIENT_EVENTS.append({"event": "onAppReady"})
-    monkeypatch.setattr(web_app, "ONLYOFFICE_SESSION_DIR", tmp_path / "sessions")
-    session_dir = tmp_path / "sessions" / "session123"
-    session_dir.mkdir(parents=True)
-    (session_dir / "CV_Lucas_Pertusa.docx").write_bytes(b"docx")
-    monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8080")
-    monkeypatch.setenv("ONLYOFFICE_PUBLIC_APP_URL", "http://host.docker.internal:8765")
-    client = TestClient(web_app.app)
-
-    response = client.get("/onlyoffice/health?session_id=session123")
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["document_server_url"] == "http://127.0.0.1:8080"
-    assert payload["public_app_url"] == "http://host.docker.internal:8765"
-    assert payload["api_js_url"] == "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js"
-    assert "cleanup_url" not in payload
-    assert payload["last_client_events"] == [{"event": "onAppReady"}]
-    assert payload["sessions_available"] == ["session123"]
-    assert payload["session_files"] == [{"name": "CV_Lucas_Pertusa.docx", "size": 4}]
-
-
-def test_onlyoffice_minimal_test_route_is_pure_editor_bootstrap(monkeypatch):
-    session = {
-        "session_id": "office123",
-        "documents": {
-            "cv": {"label": "CV", "filename": "CV_Lucas_Pertusa.docx", "key": "cv-key"},
-        },
-    }
-    config = {
-        "document": {
-            "url": "http://host.docker.internal:8765/onlyoffice/sessions/office123/files/CV_Lucas_Pertusa.docx",
-            "key": "cv-key",
-        },
-        "editorConfig": {
-            "callbackUrl": "http://host.docker.internal:8765/onlyoffice/sessions/office123/callback/cv",
-        },
-    }
-    monkeypatch.setattr(web_app.onlyoffice_integration, "load_onlyoffice_session", lambda *args: session)
-    monkeypatch.setattr(web_app.onlyoffice_integration, "build_editor_configs", lambda *args, **kwargs: {"cv": config})
-    client = TestClient(web_app.app)
-
-    response = client.get("/onlyoffice/minimal-test/office123/cv")
-
-    assert response.status_code == 200
-    assert "OnlyOffice Minimal Test" in response.text
-    assert "new DocsAPI.DocEditor" in response.text
-    assert "minimal-onAppReady" in response.text
-    assert "minimal-onDocumentReady" in response.text
-    assert "clearOnlyOfficeBrowserState" not in response.text
-    assert "clearOnlyOfficeDocumentServerState" not in response.text
-    assert "resumeforge-sw-cleanup.html" not in response.text
-    assert "Promise.all" not in response.text
-    assert "Réessayer" not in response.text
-    assert "document.url" in response.text
-    assert "callbackUrl" in response.text
-
-
-def test_onlyoffice_client_event_route_records_browser_diagnostics():
-    web_app.ONLYOFFICE_CLIENT_EVENTS.clear()
-    client = TestClient(web_app.app)
-
-    response = client.post(
-        "/onlyoffice/client-events",
-        json={
-            "event": "onAppReady",
-            "session_id": "session",
-            "kind": "cv",
-            "url": "http://127.0.0.1:8765/onlyoffice/session",
-            "api_url": "http://127.0.0.1:8080/web-apps/apps/api/documents/api.js",
-            "frame_url": "http://127.0.0.1:8080/web-apps/apps/documenteditor/main/index.html",
-            "user_agent": "test-browser",
-        },
-    )
-    events = client.get("/onlyoffice/client-events")
-
-    assert response.status_code == 200
-    assert events.json()["events"][-1]["event"] == "onAppReady"
-    assert events.json()["events"][-1]["user_agent"] == "test-browser"
 
 
 def test_preview_export_route_returns_final_zip(tmp_path, monkeypatch):
@@ -341,59 +256,66 @@ def test_preview_export_route_returns_final_zip(tmp_path, monkeypatch):
     assert captured["args"]["lm_is_dirty"] is False
 
 
-def test_onlyoffice_export_route_returns_final_zip(tmp_path, monkeypatch):
-    zip_path = tmp_path / "office.zip"
+def test_template_preview_regenerate_updates_json_and_returns_page(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(web_app, "TEMPLATE_SESSION_DIR", tmp_path / "template_sessions")
+    monkeypatch.setattr(
+        web_app.template_sessions,
+        "update_template_session",
+        lambda session_id, session_root, updates: (
+            captured.setdefault(
+                "args",
+                {
+                    "session_id": session_id,
+                    "session_root": session_root,
+                    "updates": updates,
+                },
+            ),
+            {
+            "session_id": session_id,
+            "cv_data": {"name": "Lucas Pertusa", "title": "Acheteur", "contact": "Paris", "profile": "Profil édité", "skills": [], "experiences": [], "education": []},
+            "lm_data": {"recipient": "", "subject": "", "intro": "", "body_1": "LM éditée", "body_2": "", "closing": "", "signature": "Lucas Pertusa"},
+            "documents": {"cv": {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""}},
+            "warnings": [],
+            },
+        )[1],
+    )
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/template-preview/session123/regenerate",
+        data={"cv_profile": "Profil édité", "lm_body_1": "LM éditée"},
+    )
+
+    assert response.status_code == 200
+    assert "Prévisualisation DOCX" in response.text
+    assert captured["args"]["session_id"] == "session123"
+    assert captured["args"]["updates"]["cv"]["profile"] == "Profil édité"
+    assert captured["args"]["updates"]["lm"]["body_1"] == "LM éditée"
+
+
+def test_template_preview_export_route_returns_latest_docx_zip(tmp_path, monkeypatch):
+    zip_path = tmp_path / "final.zip"
     zip_path.write_bytes(b"zip")
     captured = {}
-    monkeypatch.setattr(web_app, "ONLYOFFICE_SESSION_DIR", tmp_path / "sessions")
-    monkeypatch.setattr(web_app, "ONLYOFFICE_EXPORT_DIR", tmp_path / "exports")
+    monkeypatch.setattr(web_app, "TEMPLATE_SESSION_DIR", tmp_path / "template_sessions")
+    monkeypatch.setattr(web_app, "TEMPLATE_EXPORT_DIR", tmp_path / "exports")
     monkeypatch.setattr(
-        web_app.onlyoffice_integration,
-        "export_onlyoffice_zip",
+        web_app.template_sessions,
+        "export_template_session_zip",
         lambda session_id, session_root, output_root: captured.setdefault(
             "args",
-            {
-                "session_id": session_id,
-                "session_root": session_root,
-                "output_root": output_root,
-            },
+            {"session_id": session_id, "session_root": session_root, "output_root": output_root},
         )
         and zip_path,
     )
     client = TestClient(web_app.app)
 
-    response = client.get("/onlyoffice/sessions/office123/export")
+    response = client.get("/template-preview/session123/export")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
-    assert captured["args"]["session_id"] == "office123"
-
-
-def test_onlyoffice_callback_route_saves_status(tmp_path, monkeypatch):
-    captured = {}
-    monkeypatch.setattr(web_app, "ONLYOFFICE_SESSION_DIR", tmp_path / "sessions")
-    def fake_callback(session_id, kind, payload, session_root):
-        captured["args"] = {
-            "session_id": session_id,
-            "kind": kind,
-            "payload": payload,
-            "session_root": session_root,
-        }
-        return {"error": 0}
-
-    monkeypatch.setattr(
-        web_app.onlyoffice_integration,
-        "handle_callback",
-        fake_callback,
-    )
-    client = TestClient(web_app.app)
-
-    response = client.post("/onlyoffice/sessions/office123/callback/cv", json={"status": 2, "url": "http://doc"})
-
-    assert response.status_code == 200
-    assert response.json() == {"error": 0}
-    assert captured["args"]["kind"] == "cv"
-    assert captured["args"]["payload"]["status"] == 2
+    assert captured["args"]["session_id"] == "session123"
 
 
 def test_built_document_editor_bundle_is_browser_safe():
@@ -409,13 +331,6 @@ def test_hidden_attribute_is_not_overridden_by_notice_styles():
 
     assert "[hidden]" in styles
     assert "display: none !important" in styles
-
-
-def test_onlyoffice_toolbar_primary_button_stays_compact():
-    styles = (web_app.WEB_DIR / "static" / "styles.css").read_text(encoding="utf-8")
-
-    assert ".onlyoffice-toolbar .button.primary" in styles
-    assert "width: auto" in styles
 
 
 def test_generate_route_shows_readable_error(monkeypatch):

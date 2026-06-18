@@ -93,27 +93,28 @@ The resolved target domain is propagated through the web subprocess, CV
 enhancer, technical skills and letter application context. The letter remains
 bounded by the final CV.
 
-## Office Editing Before Export
+## MVP Preview And Editing Before Export
 
-After generation, the preferred web flow opens the generated DOCX files in
-ONLYOFFICE Docs Community Edition. This avoids the HTML reconstruction problem:
-the base CV template, photo, Word styles, tables, lists and document-level
-formatting remain inside the actual DOCX.
+After generation, the MVP web flow no longer embeds a Word-like editor. The
+application converts the generated documents into editable structured data,
+renders stable DOCX outputs, and shows a PDF preview when LibreOffice headless
+is available.
 
 The integration keeps the existing FastAPI and Jinja app structure:
 
 ```text
 generated application pack
-  -> copy real CV/LM DOCX into an OnlyOffice session
-  -> serve the files through ResumeForge URLs
-  -> initialize DocsAPI.DocEditor
-  -> save edited DOCX through OnlyOffice callback
-  -> export final DOCX files in a ZIP
+  -> extract CV/LM section data into JSON
+  -> render stable DOCX files from the JSON
+  -> convert DOCX to preview PDF when LibreOffice is available
+  -> let the user edit section fields in ResumeForge
+  -> regenerate DOCX/PDF preview
+  -> export the latest DOCX files in a ZIP
 ```
 
-TipTap can remain useful as a lightweight fallback/editor experiment, but it is
-not the fidelity target for template-preserving CV editing. The source of truth
-for professional preview/edit/export is now the DOCX itself.
+OnlyOffice and TipTap are no longer part of the active MVP editing workflow.
+The user edits the data that fills the document template, not the DOCX file
+directly.
 
-OnlyOffice-specific setup and limitations are documented in
-`docs/ONLYOFFICE_INTEGRATION.md`.
+The active implementation lives in `src/web/template_sessions.py` and
+`src/web/templates/template_preview.html`.
