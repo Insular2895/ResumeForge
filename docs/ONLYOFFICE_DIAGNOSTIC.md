@@ -13,6 +13,62 @@ Le plus probable est un cache/service worker OnlyOffice bloqué dans ce profil n
 This means the browser successfully loaded `api.js` and created the OnlyOffice
 iframe, but the editor never called `onAppReady`.
 
+## Current status after latest fixes
+
+As of commit `0ae1dd1`, the bug is still reproduced in the user's Arc/Chrome
+profile.
+
+The UI still shows:
+
+```text
+OnlyOffice a chargé son API mais l'éditeur ne renvoie pas onAppReady.
+Le plus probable est un cache/service worker OnlyOffice bloqué dans ce profil navigateur.
+Réessayer l'ouverture
+Copier commande Arc
+Iframe de diagnostic :
+```
+
+Important: the service-worker hypothesis has not been proven sufficient. The
+branch now includes service-worker cleanup on both relevant origins, but
+`onAppReady` still does not return in the affected user profile.
+
+The latest known failing iframe shape is:
+
+```text
+http://127.0.0.1:8080/9.4.0-c54f95469d83a5af565fa3d8f13a0813/web-apps/apps/documenteditor/main/index.html
+  ?_dc=9.4.0-129
+  &lang=fr
+  &customer=ONLYOFFICE
+  &type=desktop
+  &frameEditorId=onlyoffice-editor
+  &isForm=false
+  &parentOrigin=http://127.0.0.1:8765
+  &fileType=docx
+```
+
+Latest observed client event sequence remains:
+
+```text
+page-loaded
+api-script-start
+api-script-loaded
+iframe-created
+frame-timeout-retry
+iframe-created
+frame-timeout-final
+```
+
+Still missing:
+
+```text
+onAppReady
+onDocumentReady
+```
+
+So the current diagnostic state is: `api.js` loads, `DocsAPI.DocEditor` creates
+the iframe, but the OnlyOffice iframe does not complete its bootstrap /
+postMessage handshake back to the parent page.
+
 ## Local architecture
 
 The local development flow runs:
@@ -96,7 +152,7 @@ proxy_set_header X-Forwarded-Host $http_host;
 
 ## Current hypothesis
 
-The most likely cause is stale browser-profile state from the OnlyOffice
+The initial hypothesis was stale browser-profile state from the OnlyOffice
 document editor service worker.
 
 Earlier local builds used the official OnlyOffice `preload.html` flow. That
@@ -109,6 +165,21 @@ After the default launcher was simplified to load OnlyOffice directly from
 service workers that belong to the `8080` origin. The fix is therefore to serve
 a cleanup page from the OnlyOffice origin itself and let that page unregister
 its own service workers before ResumeForge loads `api.js`.
+
+Because the bug still persists after this cleanup, external diagnosis should
+also inspect:
+
+- whether OnlyOffice supports being embedded cross-origin from
+  `127.0.0.1:8765` while the editor iframe is served from `127.0.0.1:8080`;
+- whether `parentOrigin=http://127.0.0.1:8765` is being accepted by the
+  OnlyOffice editor page;
+- whether browser console errors inside the iframe show blocked scripts,
+  postMessage origin mismatch, CSP, mixed storage, or iframe permission issues;
+- whether a direct same-origin proxy is required after all, but with corrected
+  headers and without stale service workers;
+- whether Arc/Chrome profile state outside service workers, such as storage,
+  cache, extensions, third-party cookie/storage partitioning or site settings,
+  is blocking the handshake.
 
 ## Changes applied in this branch
 

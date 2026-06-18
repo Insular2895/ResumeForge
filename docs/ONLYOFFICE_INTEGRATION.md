@@ -17,6 +17,11 @@ Job offer
 
 ## Local Dependency
 
+> Current diagnostic status: the local OnlyOffice editor can still fail before
+> `onAppReady` in the affected Arc/Chrome profile, even after the proxy,
+> service-worker and cleanup changes. See `docs/ONLYOFFICE_DIAGNOSTIC.md` for
+> the latest failure sequence.
+
 Run ONLYOFFICE Docs Community Edition as a separate Document Server:
 
 ```bash
