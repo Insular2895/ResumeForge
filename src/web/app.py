@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
 from src.application.career_translation import assess_profile_for_job, load_career_domains
 from src.application import experience_memory
-from src.web import document_preview, experience_intake, prompt_overrides, reference_manager, template_sessions
+from src.web import document_preview, experience_intake, prompt_overrides, reference_manager
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
@@ -26,8 +26,6 @@ PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
 PREVIEW_DIR = OUTPUT_DIR / "web_previews"
 FINAL_EXPORT_DIR = OUTPUT_DIR / "web_final_exports"
-TEMPLATE_SESSION_DIR = OUTPUT_DIR / "template_sessions"
-TEMPLATE_EXPORT_DIR = OUTPUT_DIR / "template_final_exports"
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -49,36 +47,6 @@ def _context(request: Request, **extra) -> dict:
         "experience_options": experience_memory.experience_options(),
         **extra,
     }
-
-
-def _template_context(request: Request, session: dict, **extra) -> dict:
-    session = dict(session)
-    session.setdefault("warnings", [])
-    session.setdefault("cv_data", {})
-    session.setdefault("lm_data", {})
-    documents = dict(session.get("documents") or {})
-    documents.setdefault("cv", {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""})
-    documents.setdefault(
-        "lm",
-        {
-            "label": "Lettre de motivation",
-            "docx_filename": "Lettre_Motivation_Lucas_Pertusa.docx",
-            "pdf_filename": "",
-        },
-    )
-    session["documents"] = documents
-    return _context(request, template_session=session, **extra)
-
-
-def _template_updates_from_form(form: dict) -> dict:
-    cv_updates: dict[str, str] = {}
-    lm_updates: dict[str, str] = {}
-    for key, value in form.items():
-        if key.startswith("cv_"):
-            cv_updates[key.removeprefix("cv_")] = str(value)
-        elif key.startswith("lm_"):
-            lm_updates[key.removeprefix("lm_")] = str(value)
-    return {"cv": cv_updates, "lm": lm_updates}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -108,13 +76,13 @@ def generate(
         )
     try:
         result = SERVICE.run(mode, job_text, coverage["target_domain"], replace_existing=True)
-        template_session = template_sessions.create_template_session(result.pack_dir, TEMPLATE_SESSION_DIR)
+        preview = document_preview.create_preview_session(result.pack_dir, PREVIEW_DIR)
         return templates.TemplateResponse(
             request,
-            "template_preview.html",
-            _template_context(
+            "preview.html",
+            _context(
                 request,
-                template_session,
+                preview=preview,
                 result=result,
                 selected_target_domain=coverage["target_domain"],
             ),
@@ -173,13 +141,13 @@ def confirm_enrichment(
                 ),
             )
         result = SERVICE.run(mode, job_text, target_domain, replace_existing=True)
-        template_session = template_sessions.create_template_session(result.pack_dir, TEMPLATE_SESSION_DIR)
+        preview = document_preview.create_preview_session(result.pack_dir, PREVIEW_DIR)
         return templates.TemplateResponse(
             request,
-            "template_preview.html",
-            _template_context(
+            "preview.html",
+            _context(
                 request,
-                template_session,
+                preview=preview,
                 result=result,
                 selected_mode=mode,
                 selected_target_domain=target_domain,
@@ -383,71 +351,6 @@ def export_preview_documents(
         cv_is_dirty=cv_is_dirty,
         lm_edited=lm_edited,
         lm_is_dirty=lm_is_dirty,
-    )
-    return FileResponse(
-        zip_path,
-        filename="ResumeForge_documents_finaux.zip",
-        media_type="application/zip",
-    )
-
-@app.get("/template-preview/{session_id}", response_class=HTMLResponse)
-def template_preview(request: Request, session_id: str):
-    try:
-        session = template_sessions.load_template_session(session_id, TEMPLATE_SESSION_DIR)
-    except ValueError as exc:
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            _context(request, error=str(exc)),
-            status_code=404,
-        )
-    return templates.TemplateResponse(request, "template_preview.html", _template_context(request, session))
-
-
-@app.post("/template-preview/{session_id}/regenerate", response_class=HTMLResponse)
-async def regenerate_template_preview(request: Request, session_id: str):
-    form = await request.form()
-    try:
-        session = template_sessions.update_template_session(
-            session_id,
-            TEMPLATE_SESSION_DIR,
-            _template_updates_from_form(dict(form)),
-        )
-    except ValueError as exc:
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            _context(request, error=str(exc)),
-            status_code=404,
-        )
-    return templates.TemplateResponse(request, "template_preview.html", _template_context(request, session))
-
-
-@app.get("/template-preview/{session_id}/files/{filename}")
-def template_preview_file(session_id: str, filename: str):
-    session = template_sessions.load_template_session(session_id, TEMPLATE_SESSION_DIR)
-    allowed = {
-        document.get("pdf_filename")
-        for document in session.get("documents", {}).values()
-        if document.get("pdf_filename")
-    } | {
-        document.get("docx_filename")
-        for document in session.get("documents", {}).values()
-        if document.get("docx_filename")
-    }
-    if filename not in allowed:
-        return JSONResponse({"error": "Document introuvable."}, status_code=404)
-    path = TEMPLATE_SESSION_DIR / session_id / filename
-    media_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    return FileResponse(path, filename=filename, media_type=media_type)
-
-
-@app.get("/template-preview/{session_id}/export")
-def export_template_preview(session_id: str):
-    zip_path = template_sessions.export_template_session_zip(
-        session_id,
-        TEMPLATE_SESSION_DIR,
-        TEMPLATE_EXPORT_DIR,
     )
     return FileResponse(
         zip_path,

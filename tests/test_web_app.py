@@ -113,13 +113,16 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
         },
     )
     monkeypatch.setattr(
-        web_app.template_sessions,
-        "create_template_session",
+        web_app.document_preview,
+        "create_preview_session",
         lambda pack_dir, session_root: {
-            "session_id": "template-enrichment",
-            "cv_data": {},
-            "lm_data": {},
-            "documents": {"cv": {"label": "CV"}},
+            "preview_id": "preview-enrichment",
+            "cv_generated": "<p>CV</p>",
+            "cv_edited": "",
+            "cv_is_dirty": False,
+            "lm_generated": "<p>LM</p>",
+            "lm_edited": "",
+            "lm_is_dirty": False,
         },
     )
     client = TestClient(web_app.app)
@@ -143,10 +146,12 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
     assert captured["qa_pairs"] == [{"question": "Créiez-vous des reportings ?", "answer": "Je produisais des reportings."}]
     assert web_app.SERVICE.target_domain == "data_analytics"
     assert "80%" in response.text
-    assert "template-enrichment" in response.text
+    assert "preview-enrichment" in response.text
+    assert "document-editor-root" in response.text
+    assert "Prévisualisation" in response.text
 
 
-def test_generate_route_opens_template_preview_after_success(tmp_path, monkeypatch):
+def test_generate_route_opens_wordlike_tiptap_preview_after_success(tmp_path, monkeypatch):
     zip_path = tmp_path / "87% Ipsen - Gestionnaire ADV.zip"
     zip_path.write_bytes(b"zip")
     result = GenerationResult(
@@ -164,35 +169,18 @@ def test_generate_route_opens_template_preview_after_success(tmp_path, monkeypat
 
     captured = {}
     monkeypatch.setattr(
-        web_app.template_sessions,
-        "create_template_session",
+        web_app.document_preview,
+        "create_preview_session",
         lambda pack_dir, session_root: captured.setdefault(
             "session",
             {
-                "session_id": "template123",
-                "cv_data": {
-                    "name": "Lucas Pertusa",
-                    "title": "Acheteur",
-                    "contact": "Paris",
-                    "profile": "Profil",
-                    "skills": ["Sourcing"],
-                    "experiences": [],
-                    "education": [],
-                },
-                "lm_data": {
-                    "recipient": "Madame, Monsieur,",
-                    "subject": "Objet",
-                    "intro": "Intro",
-                    "body_1": "Body 1",
-                    "body_2": "Body 2",
-                    "closing": "Closing",
-                    "signature": "Lucas Pertusa",
-                },
-                "documents": {
-                    "cv": {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""},
-                    "lm": {"label": "Lettre de motivation", "docx_filename": "Lettre_Motivation_Lucas_Pertusa.docx", "pdf_filename": ""},
-                },
-                "warnings": ["LibreOffice indisponible : preview PDF non générée."],
+                "preview_id": "preview123",
+                "cv_generated": "<h1>Lucas Pertusa</h1><p>Acheteur</p>",
+                "cv_edited": "",
+                "cv_is_dirty": False,
+                "lm_generated": "<p>Lettre générée</p>",
+                "lm_edited": "",
+                "lm_is_dirty": False,
             },
         ),
     )
@@ -201,13 +189,16 @@ def test_generate_route_opens_template_preview_after_success(tmp_path, monkeypat
 
     assert response.status_code == 200
     assert "87%" in response.text
-    assert "Prévisualisation DOCX" in response.text
-    assert "Régénérer preview" in response.text
+    assert "Prévisualisation" in response.text
+    assert "document-editor-root" in response.text
+    assert "document-editor-data" in response.text
+    assert "document-editor.js" in response.text
+    assert "preview123" in response.text
     assert "Télécharger ZIP" in response.text
-    assert "template123" in response.text
+    assert "Prévisualisation DOCX" not in response.text
+    assert "Régénérer preview" not in response.text
     assert "OnlyOffice" not in response.text
-    assert "iframe Document Server" not in response.text
-    assert captured["session"]["session_id"] == "template123"
+    assert captured["session"]["preview_id"] == "preview123"
     assert web_app.SERVICE.kwargs["replace_existing"] is True
 
 
@@ -256,74 +247,26 @@ def test_preview_export_route_returns_final_zip(tmp_path, monkeypatch):
     assert captured["args"]["lm_is_dirty"] is False
 
 
-def test_template_preview_regenerate_updates_json_and_returns_page(tmp_path, monkeypatch):
-    captured = {}
-    monkeypatch.setattr(web_app, "TEMPLATE_SESSION_DIR", tmp_path / "template_sessions")
-    monkeypatch.setattr(
-        web_app.template_sessions,
-        "update_template_session",
-        lambda session_id, session_root, updates: (
-            captured.setdefault(
-                "args",
-                {
-                    "session_id": session_id,
-                    "session_root": session_root,
-                    "updates": updates,
-                },
-            ),
-            {
-            "session_id": session_id,
-            "cv_data": {"name": "Lucas Pertusa", "title": "Acheteur", "contact": "Paris", "profile": "Profil édité", "skills": [], "experiences": [], "education": []},
-            "lm_data": {"recipient": "", "subject": "", "intro": "", "body_1": "LM éditée", "body_2": "", "closing": "", "signature": "Lucas Pertusa"},
-            "documents": {"cv": {"label": "CV", "docx_filename": "CV_Lucas_Pertusa.docx", "pdf_filename": ""}},
-            "warnings": [],
-            },
-        )[1],
-    )
-    client = TestClient(web_app.app)
-
-    response = client.post(
-        "/template-preview/session123/regenerate",
-        data={"cv_profile": "Profil édité", "lm_body_1": "LM éditée"},
-    )
-
-    assert response.status_code == 200
-    assert "Prévisualisation DOCX" in response.text
-    assert captured["args"]["session_id"] == "session123"
-    assert captured["args"]["updates"]["cv"]["profile"] == "Profil édité"
-    assert captured["args"]["updates"]["lm"]["body_1"] == "LM éditée"
-
-
-def test_template_preview_export_route_returns_latest_docx_zip(tmp_path, monkeypatch):
-    zip_path = tmp_path / "final.zip"
-    zip_path.write_bytes(b"zip")
-    captured = {}
-    monkeypatch.setattr(web_app, "TEMPLATE_SESSION_DIR", tmp_path / "template_sessions")
-    monkeypatch.setattr(web_app, "TEMPLATE_EXPORT_DIR", tmp_path / "exports")
-    monkeypatch.setattr(
-        web_app.template_sessions,
-        "export_template_session_zip",
-        lambda session_id, session_root, output_root: captured.setdefault(
-            "args",
-            {"session_id": session_id, "session_root": session_root, "output_root": output_root},
-        )
-        and zip_path,
-    )
-    client = TestClient(web_app.app)
-
-    response = client.get("/template-preview/session123/export")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/zip"
-    assert captured["args"]["session_id"] == "session123"
-
-
 def test_built_document_editor_bundle_is_browser_safe():
     bundle = web_app.WEB_DIR / "static" / "document-editor.js"
 
     assert bundle.exists()
     assert "process.env" not in bundle.read_text(encoding="utf-8")
     assert "document-workspace" in bundle.read_text(encoding="utf-8")
+    assert "word-like-editor" in bundle.read_text(encoding="utf-8")
+    assert "WordLikeEditor" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
+
+
+def test_wordlike_editor_css_locks_a4_layout_and_print_export_styles():
+    styles = (web_app.WEB_DIR / "static" / "styles.css").read_text(encoding="utf-8")
+
+    assert ".word-like-editor" in styles
+    assert "width: 210mm" in styles
+    assert "min-height: 297mm" in styles
+    assert "padding: 18mm 16mm 16mm" in styles
+    assert "@media print" in styles
+    assert ".document-workspace" in styles
+    assert "background: #eef1f6" in styles
 
 
 def test_hidden_attribute_is_not_overridden_by_notice_styles():

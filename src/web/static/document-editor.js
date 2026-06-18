@@ -24088,7 +24088,7 @@ function tb({ label: e, generated: t, edited: n, onChange: r }) {
 		}
 	});
 	return /* @__PURE__ */ (0, z.jsxs)("div", {
-		className: "document-editor-panel",
+		className: "document-editor-panel word-like-editor",
 		"aria-label": e,
 		children: [/* @__PURE__ */ (0, z.jsx)(eb, { editor: i }), /* @__PURE__ */ (0, z.jsx)("div", {
 			className: "document-workspace",

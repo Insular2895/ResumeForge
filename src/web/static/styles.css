@@ -22,7 +22,7 @@ main {
   margin: 48px auto;
 }
 
-main:has(.template-preview-shell) {
+main:has(.document-editor-form) {
   width: min(1280px, calc(100% - 32px));
 }
 
@@ -344,7 +344,8 @@ summary {
   font-size: 13px;
 }
 
-.document-editor-panel {
+.document-editor-panel,
+.word-like-editor {
   display: grid;
 }
 
@@ -458,6 +459,48 @@ summary {
   }
 }
 
+@media print {
+  body {
+    background: #fff;
+  }
+
+  main {
+    width: auto;
+    margin: 0;
+  }
+
+  header,
+  .editor-tabs,
+  .editor-toolbar,
+  .document-editor-form > .button.primary {
+    display: none !important;
+  }
+
+  .editor-shell {
+    margin: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+  }
+
+  .document-workspace {
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+
+  .document-page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    padding: 18mm 16mm 16mm;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
 .reference-row {
   padding: 12px 0;
   border-bottom: 1px solid #eef0f4;
@@ -504,117 +547,6 @@ dialog {
 
 dialog::backdrop {
   background: rgb(23 32 51 / 46%);
-}
-
-.template-preview-shell {
-  margin-top: 20px;
-  overflow: hidden;
-  border: 1px solid #d9dee8;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.template-preview-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  border-bottom: 1px solid #d9dee8;
-  background: #fff;
-}
-
-.template-preview-toolbar .editor-tabs {
-  position: static;
-  padding: 0;
-  border-bottom: 0;
-}
-
-.template-preview-grid {
-  display: grid;
-  gap: 16px;
-  padding: 16px;
-  background: #eef1f6;
-}
-
-.template-document-panel {
-  display: grid;
-  grid-template-columns: minmax(320px, 1.25fr) minmax(280px, 0.75fr);
-  gap: 16px;
-}
-
-.template-pdf-preview {
-  min-height: 680px;
-  overflow: hidden;
-  border: 1px solid #d9dee8;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.template-pdf-preview iframe {
-  width: 100%;
-  height: 720px;
-  border: 0;
-  background: #fff;
-}
-
-.pdf-fallback {
-  padding: 32px;
-  color: #53627c;
-}
-
-.template-fields {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-}
-
-.template-fields h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.template-fields label {
-  display: grid;
-  gap: 6px;
-  font-weight: 700;
-}
-
-.template-fields input,
-.template-fields textarea {
-  box-sizing: border-box;
-  width: 100%;
-}
-
-.template-fields textarea {
-  min-height: 96px;
-  resize: vertical;
-}
-
-.template-fields fieldset {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid #d9dee8;
-  border-radius: 10px;
-}
-
-.template-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-@media (max-width: 900px) {
-  .template-document-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .template-preview-toolbar,
-  .template-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }
 
 .enrichment-dialog {

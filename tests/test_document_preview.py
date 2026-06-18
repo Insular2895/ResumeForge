@@ -77,3 +77,28 @@ def test_pdf_export_uses_a4_document_layout():
     assert b"/MediaBox [0 0 595 842]" in pdf
     assert b"/Helvetica-Bold" in pdf
     assert b"Lucas PERTUSA" in pdf
+
+
+def test_export_final_zip_keeps_pdf_as_primary_format(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    _docx(pack / "CV - Test.docx", ["CV généré fidèle"])
+    _docx(pack / "LM - Test.docx", ["LM générée fidèle"])
+    session = create_preview_session(pack, preview_dir)
+
+    zip_path = export_final_zip(
+        session["preview_id"],
+        preview_dir,
+        tmp_path / "exports",
+        cv_edited="<h1>CV TipTap</h1>",
+        cv_is_dirty=True,
+        lm_edited="<p>LM TipTap ignorée</p>",
+        lm_is_dirty=False,
+    )
+
+    with zipfile.ZipFile(zip_path) as archive:
+        names = sorted(archive.namelist())
+        assert names == ["CV_Lucas_Pertusa.pdf", "Lettre_Motivation_Lucas_Pertusa.pdf"]
+        assert b"CV TipTap" in archive.read("CV_Lucas_Pertusa.pdf")
+        assert "LM générée fidèle".encode("latin-1") in archive.read("Lettre_Motivation_Lucas_Pertusa.pdf")

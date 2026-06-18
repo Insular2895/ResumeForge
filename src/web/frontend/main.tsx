@@ -56,7 +56,7 @@ function Toolbar({ editor }: { editor: Editor | null }) {
   )
 }
 
-function EditableDocument({ label, generated, edited, onChange }: EditableDocumentProps) {
+function WordLikeEditor({ label, generated, edited, onChange }: EditableDocumentProps) {
   const editor = useEditor({
     extensions: [StarterKit],
     content: edited || generated,
@@ -67,7 +67,7 @@ function EditableDocument({ label, generated, edited, onChange }: EditableDocume
   })
 
   return (
-    <div className="document-editor-panel" aria-label={label}>
+    <div className="document-editor-panel word-like-editor" aria-label={label}>
       <Toolbar editor={editor} />
       <div className="document-workspace" aria-label={`Zone de travail ${label}`}>
         <EditorContent editor={editor} className="document-editor document-page" />
@@ -112,10 +112,10 @@ function DocumentEditor({ session }: DocumentEditorProps) {
       </div>
 
       <div hidden={activeTab !== 'cv'}>
-        <EditableDocument label="CV" generated={cvGenerated} edited={cvEdited} onChange={updateCv} />
+        <WordLikeEditor label="CV" generated={cvGenerated} edited={cvEdited} onChange={updateCv} />
       </div>
       <div hidden={activeTab !== 'lm'}>
-        <EditableDocument label="Lettre de motivation" generated={lmGenerated} edited={lmEdited} onChange={updateLm} />
+        <WordLikeEditor label="Lettre de motivation" generated={lmGenerated} edited={lmEdited} onChange={updateLm} />
       </div>
 
       <button className="button primary" type="submit">

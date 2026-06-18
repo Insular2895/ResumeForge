@@ -95,26 +95,25 @@ bounded by the final CV.
 
 ## MVP Preview And Editing Before Export
 
-After generation, the MVP web flow no longer embeds a Word-like editor. The
-application converts the generated documents into editable structured data,
-renders stable DOCX outputs, and shows a PDF preview when LibreOffice headless
-is available.
+After generation, the MVP web flow opens a TipTap editor inside a fixed
+Word-like A4 preview. The visual CV template is treated as the source of truth:
+the AI may change text, but the app-level CSS owns margins, typography, spacing
+and page structure.
 
 The integration keeps the existing FastAPI and Jinja app structure:
 
 ```text
 generated application pack
-  -> extract CV/LM section data into JSON
-  -> render stable DOCX files from the JSON
-  -> convert DOCX to preview PDF when LibreOffice is available
-  -> let the user edit section fields in ResumeForge
-  -> regenerate DOCX/PDF preview
-  -> export the latest DOCX files in a ZIP
+  -> extract generated CV/LM as HTML preview content
+  -> render the same HTML inside TipTap A4 pages
+  -> let the user edit text directly in the document
+  -> export PDF files from the final HTML content
+  -> zip CV_Lucas_Pertusa.pdf and Lettre_Motivation_Lucas_Pertusa.pdf
 ```
 
-OnlyOffice and TipTap are no longer part of the active MVP editing workflow.
-The user edits the data that fills the document template, not the DOCX file
-directly.
+OnlyOffice and the template-DOCX section editor are no longer part of the active
+MVP editing workflow. DOCX can return later only as a secondary export if it can
+preserve the preview design reliably.
 
-The active implementation lives in `src/web/template_sessions.py` and
-`src/web/templates/template_preview.html`.
+The active implementation lives in `src/web/document_preview.py`,
+`src/web/templates/preview.html`, and `src/web/frontend/main.tsx`.
