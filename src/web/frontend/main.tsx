@@ -1,28 +1,77 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { EditorContent, useEditor } from '@tiptap/react'
-import type { Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+
+type EditableBlock = {
+  id: string
+  tag: 'h2' | 'p' | 'li'
+  text: string
+  strong?: boolean
+}
+
+type EditableDocument = {
+  image_html: string
+  blocks: EditableBlock[]
+}
 
 type PreviewSession = {
   preview_id: string
   cv_generated: string
   cv_edited: string
   cv_is_dirty: boolean
+  cv_document: EditableDocument
   lm_generated: string
   lm_edited: string
   lm_is_dirty: boolean
+  lm_document: EditableDocument
 }
 
 type DocumentEditorProps = {
   session: PreviewSession
 }
 
-type EditableDocumentProps = {
-  label: string
+type StructuredDocumentProps = {
+  title: string
   generated: string
-  edited: string
+  initialDocument: EditableDocument
   onChange: (html: string, isDirty: boolean) => void
+}
+
+const prefixLabels = ['Compétences techniques :', 'Intérêts :', 'Langues :']
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function renderParagraphContent(block: EditableBlock): string {
+  const text = block.text || ''
+  const label = prefixLabels.find((prefix) => text.startsWith(prefix))
+  if (label) {
+    const suffix = text.slice(label.length).trimStart()
+    return `<strong>${escapeHtml(label)}</strong>${suffix ? ` ${escapeHtml(suffix)}` : ''}`
+  }
+  return block.strong ? `<strong>${escapeHtml(text)}</strong>` : escapeHtml(text)
+}
+
+function renderDocumentHtml(document: EditableDocument): string {
+  const chunks = document.image_html ? [document.image_html] : []
+  for (const block of document.blocks) {
+    if (block.tag === 'h2') chunks.push(`<h2>${escapeHtml(block.text)}</h2>`)
+    else if (block.tag === 'li') chunks.push(`<ul><li>${escapeHtml(block.text)}</li></ul>`)
+    else chunks.push(`<p>${renderParagraphContent(block)}</p>`)
+  }
+  return chunks.join('\n') || '<p>Document vide.</p>'
+}
+
+function cloneDocument(document: EditableDocument): EditableDocument {
+  return {
+    image_html: document.image_html || '',
+    blocks: document.blocks.map((block) => ({ ...block })),
+  }
 }
 
 function readSession(): PreviewSession {
@@ -33,45 +82,66 @@ function readSession(): PreviewSession {
   return JSON.parse(node.textContent) as PreviewSession
 }
 
-function Toolbar({ editor }: { editor: Editor | null }) {
-  if (!editor) return null
+function LockedDocumentPreview({ html }: { html: string }) {
   return (
-    <div className="editor-toolbar" aria-label="Outils de mise en forme">
-      <button type="button" onClick={() => editor.chain().focus().toggleBold().run()} className={editor.isActive('bold') ? 'active' : ''}>
-        Gras
-      </button>
-      <button type="button" onClick={() => editor.chain().focus().toggleItalic().run()} className={editor.isActive('italic') ? 'active' : ''}>
-        Italique
-      </button>
-      <button type="button" onClick={() => editor.chain().focus().toggleBulletList().run()} className={editor.isActive('bulletList') ? 'active' : ''}>
-        Liste
-      </button>
-      <button type="button" onClick={() => editor.chain().focus().undo().run()}>
-        Annuler
-      </button>
-      <button type="button" onClick={() => editor.chain().focus().redo().run()}>
-        Rétablir
-      </button>
+    <div className="document-workspace" aria-label="Prévisualisation verrouillée">
+      <div className="document-page locked-document-preview">
+        <div className="document-body" dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
     </div>
   )
 }
 
-function WordLikeEditor({ label, generated, edited, onChange }: EditableDocumentProps) {
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: edited || generated,
-    immediatelyRender: false,
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML(), editor.getHTML() !== generated)
-    },
-  })
+function SectionFieldsEditor({
+  title,
+  document,
+  onBlockChange,
+}: {
+  title: string
+  document: EditableDocument
+  onBlockChange: (blockId: string, value: string) => void
+}) {
+  return (
+    <aside className="section-editor-panel" aria-label={`Édition structurée ${title}`}>
+      <div>
+        <h2>{title}</h2>
+        <p>Modifie le texte uniquement. Le design, la photo, les marges et l’ordre du CV restent verrouillés.</p>
+      </div>
+
+      <div className="section-editor-fields">
+        {document.blocks.map((block, index) => (
+          <label key={block.id} className={block.tag === 'h2' ? 'section-editor-heading-field' : undefined}>
+            <span>
+              {block.tag === 'h2' ? 'Titre de section' : block.tag === 'li' ? 'Puces' : `Ligne ${index + 1}`}
+            </span>
+            <textarea value={block.text} rows={block.tag === 'li' ? 3 : 2} onChange={(event) => onBlockChange(block.id, event.target.value)} />
+          </label>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function StructuredDocumentEditor({ title, generated, initialDocument, onChange }: StructuredDocumentProps) {
+  const [document, setDocument] = useState(() => cloneDocument(initialDocument))
+  const html = useMemo(() => renderDocumentHtml(document), [document])
+
+  const updateBlock = (blockId: string, value: string) => {
+    setDocument((current) => {
+      const next = {
+        ...current,
+        blocks: current.blocks.map((block) => (block.id === blockId ? { ...block, text: value } : block)),
+      }
+      const nextHtml = renderDocumentHtml(next)
+      onChange(nextHtml, nextHtml !== generated)
+      return next
+    })
+  }
 
   return (
-    <div className="document-editor-panel word-like-editor" aria-label={label}>
-      <Toolbar editor={editor} />
-      <div className="document-workspace" aria-label={`Zone de travail ${label}`}>
-        <EditorContent editor={editor} className="document-editor document-page" />
-      </div>
+    <div className="document-editor-panel structured-document-editor">
+      <LockedDocumentPreview html={html} />
+      <SectionFieldsEditor title={title} document={document} onBlockChange={updateBlock} />
     </div>
   )
 }
@@ -109,18 +179,17 @@ function DocumentEditor({ session }: DocumentEditorProps) {
         <button type="button" role="tab" aria-selected={activeTab === 'lm'} onClick={() => setActiveTab('lm')}>
           Lettre de motivation {lmIsDirty ? 'modifiée' : 'générée'}
         </button>
+        <button className="button primary" type="submit">
+          Télécharger ZIP
+        </button>
       </div>
 
       <div hidden={activeTab !== 'cv'}>
-        <WordLikeEditor label="CV" generated={cvGenerated} edited={cvEdited} onChange={updateCv} />
+        <StructuredDocumentEditor title="CV" generated={cvGenerated} initialDocument={session.cv_document} onChange={updateCv} />
       </div>
       <div hidden={activeTab !== 'lm'}>
-        <WordLikeEditor label="Lettre de motivation" generated={lmGenerated} edited={lmEdited} onChange={updateLm} />
+        <StructuredDocumentEditor title="Lettre de motivation" generated={lmGenerated} initialDocument={session.lm_document} onChange={updateLm} />
       </div>
-
-      <button className="button primary" type="submit">
-        Télécharger ZIP
-      </button>
     </form>
   )
 }

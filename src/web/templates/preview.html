@@ -18,11 +18,15 @@
         <a class="button secondary" href="/">Nouvelle génération</a>
       </header>
 
-      {% if result %}
+      {% set preview_metadata = preview.get('metadata', {}) if preview is mapping else {} %}
+      {% set display_score = result.ats_score if result else preview_metadata.get('ats_score') %}
+      {% set display_company = result.company if result else preview_metadata.get('company') %}
+      {% set display_job_title = result.job_title if result else preview_metadata.get('job_title') %}
+      {% if result or display_score is not none or display_company or display_job_title %}
       <section class="notice success">
         <div>
-          <strong>{{ result.ats_score ~ '%' if result.ats_score is not none else 'Documents prêts' }}</strong>
-          <span>{{ result.company }} · {{ result.job_title }}</span>
+          <strong>{{ display_score ~ '%' if display_score is not none else 'Documents prêts' }}</strong>
+          <span>{{ display_company }}{% if display_company and display_job_title %} · {% endif %}{{ display_job_title }}</span>
         </div>
       </section>
       {% endif %}

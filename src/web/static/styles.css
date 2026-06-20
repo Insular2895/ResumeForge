@@ -349,6 +349,11 @@ summary {
   display: grid;
 }
 
+.structured-document-editor {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  align-items: stretch;
+}
+
 .document-workspace {
   min-height: 760px;
   max-height: calc(100vh - 260px);
@@ -364,28 +369,32 @@ summary {
   width: 210mm;
   min-height: 297mm;
   margin: 0 auto;
-  padding: 18mm 16mm 16mm;
+  padding: 17mm 12.5mm 11mm;
   border: 1px solid #d9dee8;
   background: #fff;
   box-shadow: 0 18px 46px rgb(23 32 51 / 14%);
 }
 
 .document-editor .ProseMirror,
-.document-page .ProseMirror {
-  min-height: calc(297mm - 34mm);
+.document-page .ProseMirror,
+.locked-document-preview .document-body {
+  position: relative;
+  min-height: calc(297mm - 28mm);
   outline: none;
-  color: #172033;
-  font-family: Arial, Inter, "Helvetica Neue", sans-serif;
-  font-size: 10.6pt;
-  line-height: 1.28;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11pt;
+  line-height: 1.18;
 }
 
 .document-editor .ProseMirror h1,
 .document-editor .ProseMirror h2,
-.document-editor .ProseMirror h3 {
-  margin: 10px 0 4px;
-  color: #172033;
-  line-height: 1.15;
+.document-editor .ProseMirror h3,
+.locked-document-preview .document-body h1,
+.locked-document-preview .document-body h2,
+.locked-document-preview .document-body h3 {
+  color: #111;
+  line-height: 1.12;
 }
 
 .document-editor .ProseMirror h1 {
@@ -395,59 +404,145 @@ summary {
   letter-spacing: -0.02em;
 }
 
-.document-editor .ProseMirror h2 {
-  padding-bottom: 2px;
-  border-bottom: 1px solid #172033;
+.document-editor .ProseMirror h2,
+.locked-document-preview .document-body h2 {
+  margin: 15px 0 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
   font-size: 11.5pt;
   font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: none;
 }
 
-.document-editor .ProseMirror h3 {
+.document-editor .ProseMirror h3,
+.locked-document-preview .document-body h3 {
   font-size: 10.8pt;
   font-weight: 800;
 }
 
-.document-editor .ProseMirror p {
+.document-editor .ProseMirror p,
+.locked-document-preview .document-body p {
+  margin: 0 0 2px;
+  color: #111;
+}
+
+.document-editor .ProseMirror ul,
+.locked-document-preview .document-body ul {
+  margin: 9px 0 14px;
+  padding-left: 29px;
+}
+
+.document-editor .ProseMirror li,
+.locked-document-preview .document-body li {
   margin: 0 0 4px;
-  color: #172033;
+  padding-left: 7px;
 }
 
-.document-editor .ProseMirror ul {
-  margin: 3px 0 7px;
-  padding-left: 16px;
+.document-editor .ProseMirror img:first-child,
+.locked-document-preview .document-body img:first-child {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 27mm;
+  height: 27mm;
+  border-radius: 999px;
+  object-fit: cover;
 }
 
-.document-editor .ProseMirror li {
-  margin: 0 0 3px;
-  padding-left: 2px;
-}
-
-.document-editor .ProseMirror p:first-child,
-.document-editor .ProseMirror p:first-child + p {
+.document-editor .ProseMirror p:first-of-type,
+.locked-document-preview .document-body p:first-of-type {
   text-align: center;
 }
 
-.document-editor .ProseMirror p:first-child {
-  margin-bottom: 2px;
-  font-size: 17pt;
+.document-editor .ProseMirror img:first-child + p,
+.locked-document-preview .document-body img:first-child + p {
+  min-height: 27mm;
+  margin: 0 0 4px;
+  padding-left: 34mm;
+  padding-top: 11mm;
+  font-size: 10.7pt;
+  line-height: 1.15;
+}
+
+.document-editor .ProseMirror p:first-of-type strong,
+.document-editor .ProseMirror p:first-of-type b,
+.locked-document-preview .document-body p:first-of-type strong,
+.locked-document-preview .document-body p:first-of-type b {
+  font-size: 12pt;
+}
+
+.document-editor .ProseMirror h2 + p strong,
+.document-editor .ProseMirror h2 + p b,
+.document-editor .ProseMirror p:has(strong),
+.locked-document-preview .document-body h2 + p strong,
+.locked-document-preview .document-body h2 + p b,
+.locked-document-preview .document-body p:has(strong) {
   font-weight: 800;
-  letter-spacing: -0.02em;
 }
 
-.document-editor .ProseMirror p:first-child + p {
-  margin-bottom: 12px;
+.section-editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+  padding: 22px;
+  border-left: 1px solid #d9dee8;
+  background: #fff;
+}
+
+.section-editor-panel h2 {
+  margin: 0 0 6px;
+  color: #172033;
+  font-size: 18px;
+}
+
+.section-editor-panel p {
+  margin: 0;
+  color: #657086;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.section-editor-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.section-editor-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.section-editor-fields span {
   color: #4f5d75;
-  font-size: 9.5pt;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
-.document-editor-form > .button.primary {
-  width: fit-content;
-  margin: 16px;
+.section-editor-fields textarea {
+  min-height: 44px;
+  resize: vertical;
+  border: 1px solid #cbd2df;
+  border-radius: 8px;
+  padding: 10px 11px;
+  color: #172033;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.section-editor-heading-field textarea {
+  font-weight: 800;
 }
 
 @media (max-width: 900px) {
+  .structured-document-editor {
+    grid-template-columns: 1fr;
+  }
+
   .document-workspace {
     padding: 18px 12px 28px;
   }
@@ -456,6 +551,12 @@ summary {
     width: 100%;
     min-height: 0;
     padding: 22px;
+  }
+
+  .section-editor-panel {
+    max-height: none;
+    border-top: 1px solid #d9dee8;
+    border-left: 0;
   }
 }
 
@@ -472,6 +573,7 @@ summary {
   header,
   .editor-tabs,
   .editor-toolbar,
+  .section-editor-panel,
   .document-editor-form > .button.primary {
     display: none !important;
   }
@@ -495,7 +597,7 @@ summary {
     width: 210mm;
     min-height: 297mm;
     margin: 0;
-    padding: 18mm 16mm 16mm;
+    padding: 17mm 12.5mm 11mm;
     border: 0;
     box-shadow: none;
   }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from html.parser import HTMLParser
 import html
@@ -10,6 +11,61 @@ import uuid
 import zipfile
 
 from docx import Document
+
+CV_SECTION_HEADINGS = {
+    "éducation",
+    "education",
+    "expériences",
+    "experiences",
+    "leadership et activités",
+    "leadership et activites",
+    "compétences et intérêts",
+    "competences et interets",
+}
+
+CV_INLINE_LABELS = {"certifications"}
+CV_PREFIX_LABELS = ("Compétences techniques :", "Intérêts :", "Langues :")
+CV_ENTRY_SECTIONS = {"expériences", "experiences", "leadership et activités", "leadership et activites"}
+
+
+def _normalized_heading(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip().lower())
+
+
+def _is_cv_section_heading(text: str) -> bool:
+    return _normalized_heading(text) in CV_SECTION_HEADINGS
+
+
+def _first_image_data_uri(document: Document) -> str:
+    for rel in document.part.rels.values():
+        if "image" not in rel.reltype:
+            continue
+        content_type = rel.target_part.content_type or "image/png"
+        encoded = base64.b64encode(rel.target_part.blob).decode("ascii")
+        return f"data:{content_type};base64,{encoded}"
+    return ""
+
+
+def _is_list_paragraph(paragraph) -> bool:
+    text = paragraph.text.strip()
+    if text.startswith(("•", "-", "*")):
+        return True
+    style = (paragraph.style.name or "").lower() if paragraph.style else ""
+    if style.startswith("list") or "bullet" in style or "puce" in style:
+        return True
+    ppr = paragraph._p.pPr
+    return bool(ppr is not None and ppr.numPr is not None)
+
+
+def _paragraph_content_html(text: str) -> str:
+    escaped = html.escape(text)
+    if _normalized_heading(text) in CV_INLINE_LABELS:
+        return f"<strong>{escaped}</strong>"
+    for prefix in CV_PREFIX_LABELS:
+        if text.startswith(prefix):
+            suffix = html.escape(text[len(prefix) :].lstrip())
+            return f"<strong>{html.escape(prefix)}</strong> {suffix}".rstrip()
+    return escaped
 
 
 class _PlainTextHTMLParser(HTMLParser):
@@ -110,21 +166,126 @@ def html_to_document_blocks(html_content: str) -> list[tuple[str, str]]:
     return parser.blocks
 
 
+class _EditableDocumentParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.image_html = ""
+        self.blocks: list[dict] = []
+        self._current_tag = ""
+        self._current_text: list[str] = []
+        self._strong_depth = 0
+        self._saw_strong = False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag == "img" and not self.image_html:
+            attr_text = " ".join(
+                f'{name}="{html.escape(str(value), quote=True)}"' for name, value in attrs if value is not None
+            )
+            self.image_html = f"<img {attr_text}>" if attr_text else "<img>"
+            return
+        if tag in {"h2", "p", "li"}:
+            self._flush()
+            self._current_tag = tag
+            self._current_text = []
+            self._saw_strong = False
+        if tag in {"strong", "b"} and self._current_tag:
+            self._strong_depth += 1
+            self._saw_strong = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"strong", "b"} and self._strong_depth:
+            self._strong_depth -= 1
+        if tag == self._current_tag:
+            self._flush()
+
+    def handle_data(self, data: str) -> None:
+        if not self._current_tag:
+            return
+        text = re.sub(r"\s+", " ", data).strip()
+        if text:
+            self._current_text.append(text)
+
+    def _flush(self) -> None:
+        if not self._current_tag:
+            return
+        text = " ".join(self._current_text).strip()
+        if text:
+            self.blocks.append(
+                {
+                    "id": f"block_{len(self.blocks)}",
+                    "tag": self._current_tag,
+                    "text": html.unescape(text),
+                    "strong": self._saw_strong,
+                }
+            )
+        self._current_tag = ""
+        self._current_text = []
+        self._saw_strong = False
+
+    def close(self) -> None:
+        self._flush()
+        super().close()
+
+
+def extract_editable_blocks(html_content: str) -> dict:
+    parser = _EditableDocumentParser()
+    parser.feed(str(html_content or ""))
+    parser.close()
+    return {"image_html": parser.image_html, "blocks": parser.blocks}
+
+
+def render_editable_blocks(blocks: list[dict], *, image_html: str = "") -> str:
+    chunks: list[str] = []
+    if image_html:
+        chunks.append(str(image_html))
+    for block in blocks:
+        tag = str(block.get("tag") or "p")
+        text = str(block.get("text") or "")
+        escaped = html.escape(text)
+        if tag == "h2":
+            chunks.append(f"<h2>{escaped}</h2>")
+        elif tag == "li":
+            chunks.append(f"<ul><li>{escaped}</li></ul>")
+        elif block.get("strong"):
+            chunks.append(f"<p>{_paragraph_content_html(text) if any(text.startswith(prefix) for prefix in CV_PREFIX_LABELS) else f'<strong>{escaped}</strong>'}</p>")
+        else:
+            chunks.append(f"<p>{escaped}</p>")
+    return "\n".join(chunks).strip() or "<p>Document vide.</p>"
+
+
 def _docx_to_html(path: Path) -> str:
     document = Document(path)
     chunks: list[str] = []
+    image_data_uri = _first_image_data_uri(document)
+    if image_data_uri:
+        chunks.append(f'<img src="{image_data_uri}" alt="Photo de profil">')
+    current_section = ""
+    entry_line_index = 0
+    just_finished_list = False
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
         if not text:
             continue
-        escaped = html.escape(text)
         style = (paragraph.style.name or "").lower() if paragraph.style else ""
-        if "heading" in style or "titre" in style:
-            chunks.append(f"<h2>{escaped}</h2>")
-        elif style.startswith("list") or text.startswith(("•", "-", "*")):
+        if _is_cv_section_heading(text):
+            current_section = _normalized_heading(text)
+            entry_line_index = 0
+            just_finished_list = False
+            chunks.append(f"<h2>{html.escape(text)}</h2>")
+        elif "heading" in style or "titre" in style:
+            chunks.append(f"<p><strong>{html.escape(text)}</strong></p>")
+        elif _is_list_paragraph(paragraph):
             chunks.append(f"<ul><li>{html.escape(text.lstrip('•-* ').strip())}</li></ul>")
+            just_finished_list = True
         else:
-            chunks.append(f"<p>{escaped}</p>")
+            if current_section in CV_ENTRY_SECTIONS and just_finished_list:
+                entry_line_index = 0
+                just_finished_list = False
+            content = _paragraph_content_html(text)
+            if current_section in CV_ENTRY_SECTIONS and entry_line_index in {0, 1}:
+                content = f"<strong>{html.escape(text)}</strong>"
+            chunks.append(f"<p>{content}</p>")
+            entry_line_index += 1
     for table in document.tables:
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
@@ -138,7 +299,7 @@ def _first_file(pack_dir: Path, pattern: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def create_preview_session(pack_dir: str | Path, preview_root: str | Path) -> dict:
+def create_preview_session(pack_dir: str | Path, preview_root: str | Path, *, metadata: dict | None = None) -> dict:
     pack = Path(pack_dir)
     if not pack.is_dir():
         raise ValueError("Pack de candidature introuvable.")
@@ -160,7 +321,10 @@ def create_preview_session(pack_dir: str | Path, preview_root: str | Path) -> di
         "lm_generated": _docx_to_html(lm_path) if lm_path else "<p>Lettre de motivation non générée.</p>",
         "lm_edited": "",
         "lm_is_dirty": False,
+        "metadata": metadata or {},
     }
+    session["cv_document"] = extract_editable_blocks(session["cv_generated"])
+    session["lm_document"] = extract_editable_blocks(session["lm_generated"])
     (root / "session.json").write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
     return session
 
@@ -169,7 +333,44 @@ def load_preview_session(preview_id: str, preview_root: str | Path) -> dict:
     path = Path(preview_root) / str(preview_id) / "session.json"
     if not path.exists():
         raise ValueError("Session de prévisualisation introuvable.")
-    return json.loads(path.read_text(encoding="utf-8"))
+    session = json.loads(path.read_text(encoding="utf-8"))
+    changed = _backfill_missing_cv_photo(session)
+    if _backfill_structured_documents(session):
+        changed = True
+    if changed:
+        path.write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
+    return session
+
+
+def _backfill_missing_cv_photo(session: dict) -> bool:
+    current_html = str(session.get("cv_generated") or "")
+    if "<img" in current_html:
+        return False
+    pack_dir = session.get("pack_dir")
+    if not pack_dir:
+        return False
+    cv_path = _first_file(Path(pack_dir), "CV*.docx")
+    if not cv_path:
+        return False
+    refreshed_html = _docx_to_html(cv_path)
+    if "<img" not in refreshed_html:
+        return False
+    session["cv_generated"] = refreshed_html
+    session["cv_document"] = extract_editable_blocks(refreshed_html)
+    if not session.get("cv_is_dirty"):
+        session["cv_edited"] = ""
+    return True
+
+
+def _backfill_structured_documents(session: dict) -> bool:
+    changed = False
+    if not isinstance(session.get("cv_document"), dict):
+        session["cv_document"] = extract_editable_blocks(str(session.get("cv_generated") or ""))
+        changed = True
+    if not isinstance(session.get("lm_document"), dict):
+        session["lm_document"] = extract_editable_blocks(str(session.get("lm_generated") or ""))
+        changed = True
+    return changed
 
 
 def _pdf_escape(text: str) -> str:
@@ -186,6 +387,139 @@ PDF_BODY_SIZE = 10.6
 PDF_BODY_LEADING = 13.6
 PDF_HEADER_SIZE = 17.5
 PDF_SECTION_SIZE = 11.5
+
+DOCUMENT_EXPORT_CSS = """
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: #eef1f6;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.document-workspace {
+  min-height: 100vh;
+  padding: 34px 24px 42px;
+  background: #eef1f6;
+}
+
+.document-page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 17mm 12.5mm 11mm;
+  border: 1px solid #d9dee8;
+  background: #fff;
+  box-shadow: 0 18px 46px rgb(23 32 51 / 14%);
+}
+
+.document-body {
+  position: relative;
+  min-height: calc(297mm - 28mm);
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11pt;
+  line-height: 1.18;
+}
+
+.document-body h1,
+.document-body h2,
+.document-body h3 {
+  color: #111;
+  line-height: 1.12;
+}
+
+.document-body h2 {
+  margin: 15px 0 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 11.5pt;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: none;
+}
+
+.document-body h3 {
+  font-size: 10.8pt;
+  font-weight: 800;
+}
+
+.document-body p {
+  margin: 0 0 2px;
+  color: #111;
+}
+
+.document-body ul {
+  margin: 9px 0 14px;
+  padding-left: 29px;
+}
+
+.document-body li {
+  margin: 0 0 4px;
+  padding-left: 7px;
+}
+
+.document-body img:first-child {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 27mm;
+  height: 27mm;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.document-body p:first-of-type {
+  text-align: center;
+}
+
+.document-body img:first-child + p {
+  min-height: 27mm;
+  margin: 0 0 4px;
+  padding-left: 34mm;
+  padding-top: 11mm;
+  font-size: 10.7pt;
+  line-height: 1.15;
+}
+
+.document-body p:first-of-type strong,
+.document-body p:first-of-type b {
+  font-size: 12pt;
+}
+
+.document-body h2 + p strong,
+.document-body h2 + p b,
+.document-body p:has(strong) {
+  font-weight: 800;
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+@media print {
+  html,
+  body,
+  .document-workspace {
+    background: #fff;
+    padding: 0;
+  }
+
+  .document-page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+  }
+}
+""".strip()
 
 
 def _wrap_text(text: str, *, max_width: float, font_size: float) -> list[str]:
@@ -339,6 +673,121 @@ def _simple_pdf_bytes(text: str) -> bytes:
     return bytes(body)
 
 
+def _safe_document_html(html_content: str, *, title: str) -> str:
+    return "\n".join(
+        [
+            "<!doctype html>",
+            '<html lang="fr">',
+            "<head>",
+            '<meta charset="utf-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1">',
+            f"<title>{html.escape(title)}</title>",
+            "<style>",
+            DOCUMENT_EXPORT_CSS,
+            "</style>",
+            "</head>",
+            "<body>",
+            '<main class="document-workspace">',
+            '<article class="document-page">',
+            f'<div class="document-body">{html_content}</div>',
+            "</article>",
+            "</main>",
+            "</body>",
+            "</html>",
+        ]
+    )
+
+
+def _candidate_pack_files(pack_dir: Path, kind: str) -> list[Path]:
+    if kind == "cv":
+        prefixes = ("CV",)
+    else:
+        prefixes = ("LM", "Lettre", "Lettre_Motivation")
+    files: list[Path] = []
+    for path in sorted(pack_dir.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".pdf", ".docx", ".html"}:
+            continue
+        if any(path.name.startswith(prefix) for prefix in prefixes):
+            files.append(path)
+    return files
+
+
+def _first_pack_file(pack_dir: Path, kind: str, suffix: str) -> Path | None:
+    suffix = suffix.lower()
+    for path in _candidate_pack_files(pack_dir, kind):
+        if path.suffix.lower() == suffix:
+            return path
+    return None
+
+
+def _is_usable_pack_pdf(path: Path | None) -> bool:
+    return bool(path and path.exists() and path.stat().st_size > 20_000)
+
+
+def _write_pack_file(archive: zipfile.ZipFile, path: Path, *, preferred_name: str) -> None:
+    archive.write(path, arcname=preferred_name)
+
+
+def _replace_paragraph_text(paragraph, text: str) -> None:
+    if paragraph.runs:
+        paragraph.runs[0].text = text
+        for run in paragraph.runs[1:]:
+            run.text = ""
+    else:
+        paragraph.add_run(text)
+
+
+def _write_edited_docx(source_path: Path, edited_html: str, output_path: Path) -> None:
+    document = Document(source_path)
+    edited_blocks = extract_editable_blocks(edited_html).get("blocks", [])
+    edited_texts = [str(block.get("text") or "") for block in edited_blocks]
+    if not edited_texts:
+        document.save(output_path)
+        return
+
+    index = 0
+    for paragraph in document.paragraphs:
+        if index >= len(edited_texts):
+            break
+        if not paragraph.text.strip():
+            continue
+        _replace_paragraph_text(paragraph, edited_texts[index])
+        index += 1
+
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    if index >= len(edited_texts):
+                        break
+                    if not paragraph.text.strip():
+                        continue
+                    _replace_paragraph_text(paragraph, edited_texts[index])
+                    index += 1
+
+    document.save(output_path)
+
+
+def _write_docx_for_export(
+    archive: zipfile.ZipFile,
+    source_docx: Path,
+    *,
+    preferred_name: str,
+    edited_html: str,
+    is_dirty: bool,
+    output_dir: Path,
+) -> None:
+    if not is_dirty:
+        _write_pack_file(archive, source_docx, preferred_name=preferred_name)
+        return
+
+    patched_path = output_dir / preferred_name
+    _write_edited_docx(source_docx, edited_html, patched_path)
+    archive.write(patched_path, arcname=preferred_name)
+
+
 def export_final_zip(
     preview_id: str,
     preview_root: str | Path,
@@ -358,6 +807,44 @@ def export_final_zip(
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("CV_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_cv))
-        archive.writestr("Lettre_Motivation_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_lm))
+        pack_dir = Path(session.get("pack_dir") or "")
+        cv_pdf = _first_pack_file(pack_dir, "cv", ".pdf") if pack_dir.is_dir() and not cv_is_dirty else None
+        lm_pdf = _first_pack_file(pack_dir, "lm", ".pdf") if pack_dir.is_dir() and not lm_is_dirty else None
+        cv_docx = _first_pack_file(pack_dir, "cv", ".docx") if pack_dir.is_dir() else None
+        lm_docx = _first_pack_file(pack_dir, "lm", ".docx") if pack_dir.is_dir() else None
+
+        if cv_docx:
+            _write_docx_for_export(
+                archive,
+                cv_docx,
+                preferred_name="CV_Lucas_Pertusa.docx",
+                edited_html=final_cv,
+                is_dirty=cv_is_dirty,
+                output_dir=output,
+            )
+        elif _is_usable_pack_pdf(cv_pdf):
+            _write_pack_file(archive, cv_pdf, preferred_name="CV_Lucas_Pertusa.pdf")
+        elif cv_is_dirty:
+            archive.writestr("CV_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_cv))
+        else:
+            archive.writestr("CV_Lucas_Pertusa.html", _safe_document_html(final_cv, title="CV_Lucas_Pertusa"))
+
+        if lm_docx:
+            _write_docx_for_export(
+                archive,
+                lm_docx,
+                preferred_name="Lettre_Motivation_Lucas_Pertusa.docx",
+                edited_html=final_lm,
+                is_dirty=lm_is_dirty,
+                output_dir=output,
+            )
+        elif _is_usable_pack_pdf(lm_pdf):
+            _write_pack_file(archive, lm_pdf, preferred_name="Lettre_Motivation_Lucas_Pertusa.pdf")
+        elif lm_is_dirty:
+            archive.writestr("Lettre_Motivation_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_lm))
+        else:
+            archive.writestr(
+                "Lettre_Motivation_Lucas_Pertusa.html",
+                _safe_document_html(final_lm, title="Lettre_Motivation_Lucas_Pertusa"),
+            )
     return zip_path

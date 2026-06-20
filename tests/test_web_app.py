@@ -115,7 +115,7 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
     monkeypatch.setattr(
         web_app.document_preview,
         "create_preview_session",
-        lambda pack_dir, session_root: {
+        lambda pack_dir, session_root, **kwargs: {
             "preview_id": "preview-enrichment",
             "cv_generated": "<p>CV</p>",
             "cv_edited": "",
@@ -123,6 +123,7 @@ def test_enrichment_confirmation_writes_memory_then_generates(tmp_path, monkeypa
             "lm_generated": "<p>LM</p>",
             "lm_edited": "",
             "lm_is_dirty": False,
+            "metadata": kwargs.get("metadata", {}),
         },
     )
     client = TestClient(web_app.app)
@@ -171,7 +172,7 @@ def test_generate_route_opens_wordlike_tiptap_preview_after_success(tmp_path, mo
     monkeypatch.setattr(
         web_app.document_preview,
         "create_preview_session",
-        lambda pack_dir, session_root: captured.setdefault(
+        lambda pack_dir, session_root, **kwargs: captured.setdefault(
             "session",
             {
                 "preview_id": "preview123",
@@ -181,6 +182,7 @@ def test_generate_route_opens_wordlike_tiptap_preview_after_success(tmp_path, mo
                 "lm_generated": "<p>Lettre générée</p>",
                 "lm_edited": "",
                 "lm_is_dirty": False,
+                "metadata": kwargs.get("metadata", {}),
             },
         ),
     )
@@ -189,6 +191,7 @@ def test_generate_route_opens_wordlike_tiptap_preview_after_success(tmp_path, mo
 
     assert response.status_code == 200
     assert "87%" in response.text
+    assert "Ipsen · Gestionnaire ADV" in response.text
     assert "Prévisualisation" in response.text
     assert "document-editor-root" in response.text
     assert "document-editor-data" in response.text
@@ -253,20 +256,52 @@ def test_built_document_editor_bundle_is_browser_safe():
     assert bundle.exists()
     assert "process.env" not in bundle.read_text(encoding="utf-8")
     assert "document-workspace" in bundle.read_text(encoding="utf-8")
-    assert "word-like-editor" in bundle.read_text(encoding="utf-8")
-    assert "WordLikeEditor" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
+    assert "section-editor-panel" in bundle.read_text(encoding="utf-8")
+    assert "LockedDocumentPreview" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
+    assert "SectionFieldsEditor" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
 
 
 def test_wordlike_editor_css_locks_a4_layout_and_print_export_styles():
     styles = (web_app.WEB_DIR / "static" / "styles.css").read_text(encoding="utf-8")
 
     assert ".word-like-editor" in styles
+    assert ".locked-document-preview" in styles
+    assert ".section-editor-panel" in styles
     assert "width: 210mm" in styles
     assert "min-height: 297mm" in styles
-    assert "padding: 18mm 16mm 16mm" in styles
+    assert "padding: 17mm 12.5mm 11mm" in styles
+    assert "img:first-child" in styles
+    assert "border-radius: 999px" in styles
+    assert "padding-left: 34mm" in styles
+    assert "text-align: center" in styles
+    assert "border-bottom: 0" in styles
     assert "@media print" in styles
     assert ".document-workspace" in styles
     assert "background: #eef1f6" in styles
+
+
+def test_preview_page_can_show_saved_result_metadata_without_fresh_generation(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "PREVIEW_DIR", tmp_path / "previews")
+    preview = {
+        "preview_id": "preview123",
+        "cv_generated": "<p>CV</p>",
+        "cv_edited": "",
+        "cv_is_dirty": False,
+        "cv_document": {"image_html": "", "blocks": []},
+        "lm_generated": "<p>LM</p>",
+        "lm_edited": "",
+        "lm_is_dirty": False,
+        "lm_document": {"image_html": "", "blocks": []},
+        "metadata": {"ats_score": 87, "company": "Ipsen", "job_title": "Gestionnaire ADV"},
+    }
+    monkeypatch.setattr(web_app.document_preview, "load_preview_session", lambda preview_id, preview_root: preview)
+    client = TestClient(web_app.app)
+
+    response = client.get("/preview/preview123")
+
+    assert response.status_code == 200
+    assert "87%" in response.text
+    assert "Ipsen · Gestionnaire ADV" in response.text
 
 
 def test_hidden_attribute_is_not_overridden_by_notice_styles():

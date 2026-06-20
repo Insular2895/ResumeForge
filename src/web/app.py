@@ -76,7 +76,15 @@ def generate(
         )
     try:
         result = SERVICE.run(mode, job_text, coverage["target_domain"], replace_existing=True)
-        preview = document_preview.create_preview_session(result.pack_dir, PREVIEW_DIR)
+        preview = document_preview.create_preview_session(
+            result.pack_dir,
+            PREVIEW_DIR,
+            metadata={
+                "ats_score": result.ats_score,
+                "company": result.company,
+                "job_title": result.job_title,
+            },
+        )
         return templates.TemplateResponse(
             request,
             "preview.html",
@@ -141,7 +149,15 @@ def confirm_enrichment(
                 ),
             )
         result = SERVICE.run(mode, job_text, target_domain, replace_existing=True)
-        preview = document_preview.create_preview_session(result.pack_dir, PREVIEW_DIR)
+        preview = document_preview.create_preview_session(
+            result.pack_dir,
+            PREVIEW_DIR,
+            metadata={
+                "ats_score": result.ats_score,
+                "company": result.company,
+                "job_title": result.job_title,
+            },
+        )
         return templates.TemplateResponse(
             request,
             "preview.html",
