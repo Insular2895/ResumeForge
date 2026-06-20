@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 type EditableBlock = {
@@ -83,10 +83,36 @@ function readSession(): PreviewSession {
 }
 
 function LockedDocumentPreview({ html }: { html: string }) {
+  const pageRef = useRef<HTMLDivElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const [pageCount, setPageCount] = useState(1)
+
+  useEffect(() => {
+    const updatePageCount = () => {
+      const page = pageRef.current
+      const body = bodyRef.current
+      if (!page || !body) return
+      const pageHeight = page.clientHeight || page.getBoundingClientRect().height
+      const contentHeight = body.scrollHeight
+      setPageCount(Math.max(1, Math.ceil(contentHeight / Math.max(pageHeight, 1))))
+    }
+
+    updatePageCount()
+    const frame = window.requestAnimationFrame(updatePageCount)
+    window.addEventListener('resize', updatePageCount)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updatePageCount)
+    }
+  }, [html])
+
   return (
     <div className="document-workspace" aria-label="Prévisualisation verrouillée">
-      <div className="document-page locked-document-preview">
-        <div className="document-body" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="document-page-count" aria-live="polite">
+        {pageCount} {pageCount > 1 ? 'pages' : 'page'}
+      </div>
+      <div className="document-page locked-document-preview" ref={pageRef}>
+        <div className="document-body" ref={bodyRef} dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     </div>
   )

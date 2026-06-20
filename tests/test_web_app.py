@@ -257,8 +257,10 @@ def test_built_document_editor_bundle_is_browser_safe():
     assert "process.env" not in bundle.read_text(encoding="utf-8")
     assert "document-workspace" in bundle.read_text(encoding="utf-8")
     assert "section-editor-panel" in bundle.read_text(encoding="utf-8")
+    assert "document-page-count" in bundle.read_text(encoding="utf-8")
     assert "LockedDocumentPreview" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
     assert "SectionFieldsEditor" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
+    assert "Math.ceil" in (web_app.WEB_DIR / "frontend" / "main.tsx").read_text(encoding="utf-8")
 
 
 def test_wordlike_editor_css_locks_a4_layout_and_print_export_styles():
@@ -273,6 +275,8 @@ def test_wordlike_editor_css_locks_a4_layout_and_print_export_styles():
     assert "img:first-child" in styles
     assert "border-radius: 999px" in styles
     assert "padding-left: 34mm" in styles
+    assert "ul + p:has(strong)" in styles
+    assert "margin-top: 14px" in styles
     assert "text-align: center" in styles
     assert "border-bottom: 0" in styles
     assert "@media print" in styles

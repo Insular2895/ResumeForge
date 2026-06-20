@@ -111,6 +111,35 @@ def test_docx_to_html_preserves_cv_photo_sections_and_word_bullets(tmp_path):
     assert '<h2>Compétences et intérêts</h2>' in html
 
 
+def test_docx_to_html_removes_duplicate_email_only_line_after_contact_header(tmp_path):
+    document = Document()
+    document.add_paragraph("Lucas PERTUSA Clamart 92 • lucaspertusa.pro@gmail.com • +33 07 66 40 32 00")
+    document.add_paragraph("lucaspertusa.pro@gmail.com")
+    docx_path = tmp_path / "CV - Test.docx"
+    document.save(docx_path)
+
+    html = _docx_to_html(docx_path)
+
+    assert html.count("lucaspertusa.pro@gmail.com") == 1
+
+
+def test_docx_to_html_keeps_company_names_bold_after_previous_bullet_list(tmp_path):
+    document = Document()
+    document.add_paragraph("Expériences", style="Heading 1")
+    document.add_paragraph("Blurry")
+    document.add_paragraph("Analyste commercial ADV")
+    document.add_paragraph("Pilote les expéditions via ERP.", style="List Bullet")
+    document.add_paragraph("Orion trading")
+    document.add_paragraph("Analyste commercial")
+    docx_path = tmp_path / "CV - Test.docx"
+    document.save(docx_path)
+
+    html = _docx_to_html(docx_path)
+
+    assert "<p><strong>Orion trading</strong></p>" in html
+    assert "<p><strong>Analyste commercial</strong></p>" in html
+
+
 def test_editable_blocks_rebuild_document_without_changing_template_structure():
     source = "\n".join(
         [
@@ -212,6 +241,138 @@ def test_export_final_zip_writes_edited_text_back_into_docx_when_dirty(tmp_path)
     exported_text = "\n".join(paragraph.text for paragraph in exported.paragraphs)
     assert "Nouvelle ligne exportée" in exported_text
     assert "Ancienne ligne" not in exported_text
+
+
+def test_export_final_zip_removes_trailing_empty_paragraphs_that_create_blank_pages(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    document = Document()
+    document.add_paragraph("Lucas PERTUSA")
+    document.add_paragraph("Compétences et intérêts")
+    document.add_paragraph("Langues : Français")
+    document.add_paragraph("   ")
+    document.add_paragraph("")
+    document.save(pack / "CV - Test.docx")
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(pack, preview_dir)
+
+    zip_path = export_final_zip(session["preview_id"], preview_dir, tmp_path / "exports")
+
+    extracted_docx = tmp_path / "CV_Lucas_Pertusa.docx"
+    with zipfile.ZipFile(zip_path) as archive:
+        extracted_docx.write_bytes(archive.read("CV_Lucas_Pertusa.docx"))
+
+    exported = Document(extracted_docx)
+    assert exported.paragraphs[-1].text == "Langues : Français"
+
+
+def test_export_final_zip_adds_spacing_before_next_company_after_bullets(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    document = Document()
+    document.add_paragraph("Expériences")
+    document.add_paragraph("Blurry")
+    document.add_paragraph("Analyste commercial")
+    document.add_paragraph("Pilotage des expéditions internationales.", style="List Bullet")
+    orion_source = document.add_paragraph()
+    orion_source.add_run("Orion trading").bold = True
+    document.add_paragraph("Analyste commercial")
+    document.add_paragraph("")
+    document.save(pack / "CV - Test.docx")
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(pack, preview_dir)
+
+    zip_path = export_final_zip(session["preview_id"], preview_dir, tmp_path / "exports")
+
+    extracted_docx = tmp_path / "CV_Lucas_Pertusa.docx"
+    with zipfile.ZipFile(zip_path) as archive:
+        extracted_docx.write_bytes(archive.read("CV_Lucas_Pertusa.docx"))
+
+    exported = Document(extracted_docx)
+    texts = [paragraph.text for paragraph in exported.paragraphs]
+    orion_index = texts.index("Orion trading")
+    assert texts[orion_index - 1] == ""
+    assert any(run.bold is True for run in exported.paragraphs[orion_index].runs)
+    assert exported.paragraphs[-1].text == "Analyste commercial"
+
+
+def test_export_final_zip_keeps_certification_items_regular_weight(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    document = Document()
+    title = document.add_paragraph()
+    title_run = title.add_run("Certifications")
+    title_run.bold = True
+    certification = document.add_paragraph()
+    cert_run = certification.add_run("Building a large scale automated forecasting system - SAS")
+    cert_run.bold = True
+    document.add_paragraph("time series forecasting with prophet - Packt")
+    document.save(pack / "CV - Test.docx")
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(pack, preview_dir)
+
+    zip_path = export_final_zip(session["preview_id"], preview_dir, tmp_path / "exports")
+
+    extracted_docx = tmp_path / "CV_Lucas_Pertusa.docx"
+    with zipfile.ZipFile(zip_path) as archive:
+        extracted_docx.write_bytes(archive.read("CV_Lucas_Pertusa.docx"))
+
+    exported = Document(extracted_docx)
+    cert_item = next(paragraph for paragraph in exported.paragraphs if paragraph.text.startswith("Building a large"))
+    assert all(run.bold is not True for run in cert_item.runs)
+
+
+def test_export_final_zip_uses_company_and_job_title_in_client_filenames(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    _docx(pack / "CV - Test.docx", ["Lucas PERTUSA"])
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(
+        pack,
+        preview_dir,
+        metadata={"company": "Nike", "job_title": "Assistant commercial / ADV"},
+    )
+
+    zip_path = export_final_zip(session["preview_id"], preview_dir, tmp_path / "exports")
+
+    with zipfile.ZipFile(zip_path) as archive:
+        assert sorted(archive.namelist()) == [
+            "CV - Nike - Assistant commercial ADV.docx",
+            "LM - Nike - Assistant commercial ADV.docx",
+        ]
+
+
+def test_export_final_zip_adds_ats_score_summary_without_putting_score_in_filenames(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    _docx(pack / "CV - Test.docx", ["Lucas PERTUSA"])
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(
+        pack,
+        preview_dir,
+        metadata={"ats_score": 87, "company": "Nike", "job_title": "Assistant commercial / ADV"},
+    )
+
+    zip_path = export_final_zip(session["preview_id"], preview_dir, tmp_path / "exports")
+
+    with zipfile.ZipFile(zip_path) as archive:
+        names = sorted(archive.namelist())
+        assert names == [
+            "CV - Nike - Assistant commercial ADV.docx",
+            "LM - Nike - Assistant commercial ADV.docx",
+            "Score_ATS.txt",
+        ]
+        assert all("%" not in name for name in names)
+        score_text = archive.read("Score_ATS.txt").decode("utf-8")
+
+    assert "Score ATS : 87%" in score_text
+    assert "Entreprise : Nike" in score_text
+    assert "Poste : Assistant commercial / ADV" in score_text
 
 
 def test_pdf_export_uses_a4_document_layout():

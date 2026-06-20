@@ -8052,16 +8052,39 @@ function re() {
 	return JSON.parse(e.textContent);
 }
 function w({ html: e }) {
-	return /* @__PURE__ */ (0, x.jsx)("div", {
+	let t = (0, y.useRef)(null), n = (0, y.useRef)(null), [r, i] = (0, y.useState)(1);
+	return (0, y.useEffect)(() => {
+		let e = () => {
+			let e = t.current, r = n.current;
+			if (!e || !r) return;
+			let a = e.clientHeight || e.getBoundingClientRect().height, o = r.scrollHeight;
+			i(Math.max(1, Math.ceil(o / Math.max(a, 1))));
+		};
+		e();
+		let r = window.requestAnimationFrame(e);
+		return window.addEventListener("resize", e), () => {
+			window.cancelAnimationFrame(r), window.removeEventListener("resize", e);
+		};
+	}, [e]), /* @__PURE__ */ (0, x.jsxs)("div", {
 		className: "document-workspace",
 		"aria-label": "Prévisualisation verrouillée",
-		children: /* @__PURE__ */ (0, x.jsx)("div", {
+		children: [/* @__PURE__ */ (0, x.jsxs)("div", {
+			className: "document-page-count",
+			"aria-live": "polite",
+			children: [
+				r,
+				" ",
+				r > 1 ? "pages" : "page"
+			]
+		}), /* @__PURE__ */ (0, x.jsx)("div", {
 			className: "document-page locked-document-preview",
+			ref: t,
 			children: /* @__PURE__ */ (0, x.jsx)("div", {
 				className: "document-body",
+				ref: n,
 				dangerouslySetInnerHTML: { __html: e }
 			})
-		})
+		})]
 	});
 }
 function ie({ title: e, document: t, onBlockChange: n }) {

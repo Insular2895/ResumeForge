@@ -7,10 +7,14 @@ import html
 import json
 from pathlib import Path
 import re
+import unicodedata
 import uuid
 import zipfile
 
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.shared import Pt
+from docx.text.paragraph import Paragraph
 
 CV_SECTION_HEADINGS = {
     "éducation",
@@ -26,6 +30,7 @@ CV_SECTION_HEADINGS = {
 CV_INLINE_LABELS = {"certifications"}
 CV_PREFIX_LABELS = ("Compétences techniques :", "Intérêts :", "Langues :")
 CV_ENTRY_SECTIONS = {"expériences", "experiences", "leadership et activités", "leadership et activites"}
+EMAIL_PATTERN = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 
 
 def _normalized_heading(text: str) -> str:
@@ -66,6 +71,16 @@ def _paragraph_content_html(text: str) -> str:
             suffix = html.escape(text[len(prefix) :].lstrip())
             return f"<strong>{html.escape(prefix)}</strong> {suffix}".rstrip()
     return escaped
+
+
+def _emails_in_text(text: str) -> set[str]:
+    return {match.group(0).lower() for match in EMAIL_PATTERN.finditer(str(text or ""))}
+
+
+def _is_email_only_line(text: str) -> bool:
+    stripped = str(text or "").strip()
+    emails = _emails_in_text(stripped)
+    return bool(emails) and stripped.lower() in emails
 
 
 class _PlainTextHTMLParser(HTMLParser):
@@ -262,10 +277,15 @@ def _docx_to_html(path: Path) -> str:
     current_section = ""
     entry_line_index = 0
     just_finished_list = False
+    seen_emails: set[str] = set()
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
         if not text:
             continue
+        paragraph_emails = _emails_in_text(text)
+        if _is_email_only_line(text) and paragraph_emails <= seen_emails:
+            continue
+        seen_emails.update(paragraph_emails)
         style = (paragraph.style.name or "").lower() if paragraph.style else ""
         if _is_cv_section_heading(text):
             current_section = _normalized_heading(text)
@@ -498,6 +518,10 @@ body {
   font-weight: 800;
 }
 
+.document-body ul + p:has(strong) {
+  margin-top: 14px;
+}
+
 @page {
   size: A4;
   margin: 0;
@@ -698,6 +722,46 @@ def _safe_document_html(html_content: str, *, title: str) -> str:
     )
 
 
+def _safe_filename_part(value: str, fallback: str) -> str:
+    text = unicodedata.normalize("NFKD", str(value or fallback))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"[^\w% -]+", " ", text, flags=re.ASCII)
+    return re.sub(r"\s+", " ", text).strip() or fallback
+
+
+def _client_filename(session: dict, prefix: str, suffix: str) -> str:
+    metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
+    company = _safe_filename_part(str(metadata.get("company") or ""), "")
+    job_title = _safe_filename_part(str(metadata.get("job_title") or ""), "")
+    if company or job_title:
+        parts = [prefix, company or "Entreprise", job_title or "Poste"]
+        return " - ".join(parts) + suffix
+    if prefix == "LM":
+        return f"Lettre_Motivation_Lucas_Pertusa{suffix}"
+    return f"{prefix}_Lucas_Pertusa{suffix}"
+
+
+def _write_ats_score_summary(archive: zipfile.ZipFile, session: dict) -> None:
+    metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
+    ats_score = metadata.get("ats_score")
+    if not isinstance(ats_score, int):
+        return
+    score = max(0, min(100, ats_score))
+    company = str(metadata.get("company") or "Non renseignée").strip() or "Non renseignée"
+    job_title = str(metadata.get("job_title") or "Non renseigné").strip() or "Non renseigné"
+    content = "\n".join(
+        [
+            "ResumeForge - Score ATS",
+            f"Score ATS : {score}%",
+            f"Entreprise : {company}",
+            f"Poste : {job_title}",
+            "",
+            "Ce score correspond au matching estime entre le CV genere et la fiche de poste analysee.",
+        ]
+    )
+    archive.writestr("Score_ATS.txt", content.encode("utf-8"))
+
+
 def _candidate_pack_files(pack_dir: Path, kind: str) -> list[Path]:
     if kind == "cv":
         prefixes = ("CV",)
@@ -739,11 +803,76 @@ def _replace_paragraph_text(paragraph, text: str) -> None:
         paragraph.add_run(text)
 
 
+def _remove_paragraph(paragraph) -> None:
+    element = paragraph._element
+    parent = element.getparent()
+    if parent is not None:
+        parent.remove(element)
+
+
+def _insert_blank_paragraph_before(paragraph) -> Paragraph:
+    element = OxmlElement("w:p")
+    paragraph._p.addprevious(element)
+    inserted = Paragraph(element, paragraph._parent)
+    inserted.paragraph_format.space_before = Pt(0)
+    inserted.paragraph_format.space_after = Pt(0)
+    return inserted
+
+
+def _remove_trailing_empty_paragraphs(document: Document) -> None:
+    for paragraph in reversed(document.paragraphs):
+        if paragraph.text.strip():
+            break
+        _remove_paragraph(paragraph)
+
+
+def _force_regular(paragraph) -> None:
+    for run in paragraph.runs:
+        run.bold = False
+
+
+def _normalize_cv_document(document: Document) -> None:
+    in_certifications = False
+    current_section = ""
+    previous_non_empty_was_list = False
+    paragraphs = list(document.paragraphs)
+    for index, paragraph in enumerate(paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        normalized = _normalized_heading(text)
+        is_section = _is_cv_section_heading(text)
+        starts_profile_line = any(text.startswith(prefix) for prefix in CV_PREFIX_LABELS)
+
+        if (
+            current_section in CV_ENTRY_SECTIONS
+            and previous_non_empty_was_list
+            and not is_section
+            and not _is_list_paragraph(paragraph)
+        ):
+            previous_physical = paragraphs[index - 1] if index > 0 else None
+            if previous_physical is None or previous_physical.text.strip():
+                _insert_blank_paragraph_before(paragraph)
+
+        if normalized == "certifications":
+            in_certifications = True
+        elif in_certifications and (is_section or starts_profile_line):
+            in_certifications = False
+        elif in_certifications:
+            _force_regular(paragraph)
+
+        if is_section:
+            current_section = normalized
+        previous_non_empty_was_list = _is_list_paragraph(paragraph)
+
+
 def _write_edited_docx(source_path: Path, edited_html: str, output_path: Path) -> None:
     document = Document(source_path)
     edited_blocks = extract_editable_blocks(edited_html).get("blocks", [])
     edited_texts = [str(block.get("text") or "") for block in edited_blocks]
     if not edited_texts:
+        _normalize_cv_document(document)
+        _remove_trailing_empty_paragraphs(document)
         document.save(output_path)
         return
 
@@ -767,6 +896,8 @@ def _write_edited_docx(source_path: Path, edited_html: str, output_path: Path) -
                     _replace_paragraph_text(paragraph, edited_texts[index])
                     index += 1
 
+    _normalize_cv_document(document)
+    _remove_trailing_empty_paragraphs(document)
     document.save(output_path)
 
 
@@ -779,12 +910,8 @@ def _write_docx_for_export(
     is_dirty: bool,
     output_dir: Path,
 ) -> None:
-    if not is_dirty:
-        _write_pack_file(archive, source_docx, preferred_name=preferred_name)
-        return
-
     patched_path = output_dir / preferred_name
-    _write_edited_docx(source_docx, edited_html, patched_path)
+    _write_edited_docx(source_docx, edited_html if is_dirty else "", patched_path)
     archive.write(patched_path, arcname=preferred_name)
 
 
@@ -812,39 +939,46 @@ def export_final_zip(
         lm_pdf = _first_pack_file(pack_dir, "lm", ".pdf") if pack_dir.is_dir() and not lm_is_dirty else None
         cv_docx = _first_pack_file(pack_dir, "cv", ".docx") if pack_dir.is_dir() else None
         lm_docx = _first_pack_file(pack_dir, "lm", ".docx") if pack_dir.is_dir() else None
+        cv_docx_name = _client_filename(session, "CV", ".docx")
+        lm_docx_name = _client_filename(session, "LM", ".docx")
+        cv_pdf_name = _client_filename(session, "CV", ".pdf")
+        lm_pdf_name = _client_filename(session, "LM", ".pdf")
+        cv_html_name = _client_filename(session, "CV", ".html")
+        lm_html_name = _client_filename(session, "LM", ".html")
 
         if cv_docx:
             _write_docx_for_export(
                 archive,
                 cv_docx,
-                preferred_name="CV_Lucas_Pertusa.docx",
+                preferred_name=cv_docx_name,
                 edited_html=final_cv,
                 is_dirty=cv_is_dirty,
                 output_dir=output,
             )
         elif _is_usable_pack_pdf(cv_pdf):
-            _write_pack_file(archive, cv_pdf, preferred_name="CV_Lucas_Pertusa.pdf")
+            _write_pack_file(archive, cv_pdf, preferred_name=cv_pdf_name)
         elif cv_is_dirty:
-            archive.writestr("CV_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_cv))
+            archive.writestr(cv_pdf_name, _simple_pdf_bytes(final_cv))
         else:
-            archive.writestr("CV_Lucas_Pertusa.html", _safe_document_html(final_cv, title="CV_Lucas_Pertusa"))
+            archive.writestr(cv_html_name, _safe_document_html(final_cv, title=Path(cv_html_name).stem))
 
         if lm_docx:
             _write_docx_for_export(
                 archive,
                 lm_docx,
-                preferred_name="Lettre_Motivation_Lucas_Pertusa.docx",
+                preferred_name=lm_docx_name,
                 edited_html=final_lm,
                 is_dirty=lm_is_dirty,
                 output_dir=output,
             )
         elif _is_usable_pack_pdf(lm_pdf):
-            _write_pack_file(archive, lm_pdf, preferred_name="Lettre_Motivation_Lucas_Pertusa.pdf")
+            _write_pack_file(archive, lm_pdf, preferred_name=lm_pdf_name)
         elif lm_is_dirty:
-            archive.writestr("Lettre_Motivation_Lucas_Pertusa.pdf", _simple_pdf_bytes(final_lm))
+            archive.writestr(lm_pdf_name, _simple_pdf_bytes(final_lm))
         else:
             archive.writestr(
-                "Lettre_Motivation_Lucas_Pertusa.html",
-                _safe_document_html(final_lm, title="Lettre_Motivation_Lucas_Pertusa"),
+                lm_html_name,
+                _safe_document_html(final_lm, title=Path(lm_html_name).stem),
             )
+        _write_ats_score_summary(archive, session)
     return zip_path

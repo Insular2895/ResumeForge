@@ -375,6 +375,15 @@ summary {
   box-shadow: 0 18px 46px rgb(23 32 51 / 14%);
 }
 
+.document-page-count {
+  width: 210mm;
+  margin: 0 auto 10px;
+  color: #657086;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
 .document-editor .ProseMirror,
 .document-page .ProseMirror,
 .locked-document-preview .document-body {
@@ -480,6 +489,11 @@ summary {
 .locked-document-preview .document-body h2 + p b,
 .locked-document-preview .document-body p:has(strong) {
   font-weight: 800;
+}
+
+.document-editor .ProseMirror ul + p:has(strong),
+.locked-document-preview .document-body ul + p:has(strong) {
+  margin-top: 14px;
 }
 
 .section-editor-panel {
