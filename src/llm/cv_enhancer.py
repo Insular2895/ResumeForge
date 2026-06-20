@@ -2,6 +2,7 @@ import json
 from copy import deepcopy
 
 from src.llm.gemini_client import ask_gemini, is_gemini_enabled
+from src.application.career_translation import build_translation_context, resolve_target_domain
 from src.web.prompt_overrides import append_cv_override
 
 
@@ -20,7 +21,14 @@ def clean_json_response(text: str) -> str:
     return cleaned
 
 
-def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_text, ats_analysis=None, document_language="fr"):
+def improve_full_cv_with_gemini(
+    selected_experiences,
+    selected_leadership,
+    job_text,
+    ats_analysis=None,
+    document_language="fr",
+    target_domain="",
+):
     """
     Optimise tous les bullets du CV en un seul appel Gemini.
     Fallback : retourne les contenus originaux si Gemini échoue.
@@ -39,6 +47,8 @@ def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_t
                 "company": exp.get("company", ""),
                 "position": exp.get("position", ""),
                 "bullets": exp.get("bullets", []),
+                "validated_memory": exp.get("validated_memory", ""),
+                "facts_locked": bool(exp.get("facts_locked")),
                 "rewrite_locked": bool(exp.get("rewrite_locked")),
             }
             for index, exp in enumerate(experiences_copy)
@@ -54,11 +64,24 @@ def improve_full_cv_with_gemini(selected_experiences, selected_leadership, job_t
         ],
     }
     ats_analysis = ats_analysis or {}
+    evidence_text = "\n".join(
+        text
+        for group in [experiences_copy, leadership_copy]
+        for item in group
+        for text in [*item.get("bullets", []), item.get("validated_memory", "")]
+        if text
+    )
+    resolved_domain = resolve_target_domain(job_text, target_domain)
+    translation_context = build_translation_context(
+        evidence_text,
+        resolved_domain["key"],
+        domain_model=resolved_domain["model"],
+    )
     ats_guidance = {
         "score_initial": ats_analysis.get("score"),
         "mots_cles_injectables_car_deja_prouves": ats_analysis.get("injectable_keywords", []),
-        "mots_cles_transferables_a_ajouter_si_utile": ats_analysis.get("transferable_keywords", []),
-        "mots_cles_manquants_a_traiter_en_priorite": ats_analysis.get("missing_keywords", [])[:20],
+        "mots_cles_deja_prouves_a_integrer_si_utile": ats_analysis.get("injectable_keywords", []),
+        "enjeux_de_l_offre_non_revendicables_comme_experience": ats_analysis.get("missing_keywords", [])[:20],
         "mots_cles_a_integrer_dans_les_experiences_pas_en_liste_competences": ats_analysis.get("priority_keywords", []),
         "suggestions_ats": ats_analysis.get("suggestions", []),
         "vocabulaire_metier_de_reference_si_offre_courte": ats_analysis.get(
@@ -71,21 +94,19 @@ Tu es un expert CV ATS.
 
 Objectif :
 Réécris les bullets du CV pour mieux correspondre à l'offre.
-Utilise les suggestions ATS, y compris les compétences transférables réalistes demandées par l'offre.
+Utilise uniquement les suggestions ATS déjà soutenues par les preuves du candidat.
 
 Contraintes strictes :
 - ne mens pas
 - n'invente aucun chiffre
 - n'ajoute aucune expérience
-- tu peux ajouter des outils/compétences transférables demandés par l'offre si cela reste crédible pour un profil junior opérationnel
-- pour un ERP demandé, tu peux parler d'ERP ou de prise en main d'un ERP équivalent sans prétendre être expert d'un logiciel précis
-- pour Pack Office / Microsoft Office / Google Workspace, tu peux les intégrer comme outils bureautiques opérationnels
+- n'ajoute aucun outil ou compétence seulement parce qu'il est demandé dans l'offre
 - garde le sens original
 - conserve exactement le même nombre de bullets pour chaque bloc
 - améliore la clarté, l'impact et la correspondance avec l'offre
 - adopte une logique de marketing-propre pour recruteur humain : valorise les missions avec un vocabulaire corporate, orienté impact, coordination, qualité, délais, client, reporting, sans inventer de faits
-- intègre les mots-clés ATS manquants quand ils renforcent une mission proche
-- si le score initial est inférieur à 70, traite les mots-clés manquants/prioritaires comme une contrainte forte : intègre-en le maximum dans les bullets existants quand c'est crédible
+- intègre uniquement les mots-clés ATS déjà prouvés quand ils renforcent une mission
+- si le score initial est inférieur à 70, améliore la formulation sans contourner la frontière des preuves soutenues
 - privilégie l'intégration des mots-clés métier dans les bullets d'expérience, pas sous forme de liste artificielle
 - chaque expérience doit porter plusieurs mots exacts de l'offre, répartis naturellement dans les bullets
 - adapte l'optimisation à tout type d'offre : ADV, administratif, commercial, finance, marketing, data, projet, retail, support client, supply chain, export/import
@@ -93,15 +114,20 @@ Contraintes strictes :
 - pour ADV / administratif / export, les termes comme cahiers des charges, consultations, approvisionnement, production, conditions contractuelles, demandes clients, support administratif, délais, coût, qualité peuvent devenir des formulations prudentes : "appui au suivi", "coordination avec", "fiabilisation de", "contribution à"
 - si l'offre est courte ou vague, utilise le vocabulaire métier de référence fourni par l'analyse ATS pour enrichir les bullets avec des termes du métier cible
 - remplace les formulations vagues par des formulations concrètes liées au domaine de l'offre, avec les mêmes preuves de fond que le CV source
-- utilise les mots-clés exacts des ATS stricts quand ils sont vrais et naturels, surtout ceux listés comme manquants par Workday, Taleo ou SuccessFactors
-- préfère une formulation crédible du type "contribution à", "suivi de", "coordination de", "appui à", "fiabilisation de", plutôt que des claims trop forts quand la preuve est indirecte
+- utilise les mots-clés exacts des ATS stricts uniquement quand ils sont vrais, naturels et soutenus
+- préfère une formulation proportionnée à la responsabilité explicitement prouvée
 - évite les formulations fortes du type "expert", "maîtrise avancée", "spécialiste SAP" si ce n'est pas prouvé
 - style professionnel
 - rédige tous les intitulés de poste, rôles et bullets en {"anglais professionnel" if document_language == "en" else "français naturel"}
 - conserve les noms d'entreprise, organisations, lieux, dates, chiffres et outils inchangés
-- ne modifie ni l'intitulé ni les bullets d'une expérience avec `rewrite_locked: true`
+- les faits avec `facts_locked: true` sont immuables sur le fond mais leur formulation métier peut être traduite
+- utilise `validated_memory` uniquement pour l'expérience à laquelle elle est rattachée
 - bullets courts
 - ne modifie pas les noms d'entreprise, lieux ou dates
+- utilise le contexte de traduction métier fourni ci-dessous comme garde-fou :
+  - les termes soutenus peuvent être intégrés naturellement ;
+  - Les termes non soutenus sont interdits tant que le candidat ne les a pas validés ;
+  - ne transforme jamais une proximité sémantique en responsabilité réelle
 - réponse uniquement en JSON valide
 - aucun commentaire avant ou après
 
@@ -129,6 +155,9 @@ Offre :
 Analyse ATS à prendre en compte :
 {json.dumps(ats_guidance, ensure_ascii=False, indent=2)}
 
+Contexte de traduction métier crédible :
+{json.dumps(translation_context, ensure_ascii=False, indent=2)}
+
 CV à optimiser :
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 """
@@ -145,9 +174,6 @@ CV à optimiser :
 
             if not isinstance(index, int) or index < 0 or index >= len(experiences_copy):
                 continue
-            if experiences_copy[index].get("rewrite_locked"):
-                continue
-
             old_bullets = experiences_copy[index].get("bullets", [])
             if item.get("position"):
                 experiences_copy[index]["position"] = str(item["position"]).strip()

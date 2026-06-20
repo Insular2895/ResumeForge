@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 
@@ -10,16 +11,21 @@ from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
-from src.web import experience_intake, prompt_overrides, reference_manager
+from src.application.career_translation import assess_profile_for_job, load_career_domains
+from src.application import experience_memory
+from src.web import document_preview, experience_intake, prompt_overrides, reference_manager
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 WEB_DIR = Path(__file__).resolve().parent
-HOST = "127.0.0.1"
+load_dotenv(ROOT_DIR / ".env")
+
+HOST = os.environ.get("RESUMEFORGE_HOST", "127.0.0.1")
 PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
-load_dotenv(ROOT_DIR / ".env")
+PREVIEW_DIR = OUTPUT_DIR / "web_previews"
+FINAL_EXPORT_DIR = OUTPUT_DIR / "web_final_exports"
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -37,6 +43,8 @@ def _context(request: Request, **extra) -> dict:
         "references": reference_manager.get_reference_statuses(),
         "cv_prompt": prompt_overrides.load_override("cv") or "",
         "lm_prompt": prompt_overrides.load_override("lm") or "",
+        "career_domains": load_career_domains(),
+        "experience_options": experience_memory.experience_options(),
         **extra,
     }
 
@@ -47,10 +55,46 @@ def home(request: Request):
 
 
 @app.post("/generate", response_class=HTMLResponse)
-def generate(request: Request, mode: str = Form(...), job_text: str = Form(...)):
+def generate(
+    request: Request,
+    mode: str = Form(...),
+    job_text: str = Form(...),
+    target_domain: str = Form(""),
+):
+    coverage = assess_profile_for_job(job_text, target_domain)
+    if coverage["status"] == "enrichment_required":
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                coverage=coverage,
+                selected_mode=mode,
+                selected_target_domain=coverage["target_domain"],
+                job_text=job_text,
+            ),
+        )
     try:
-        result = SERVICE.run(mode, job_text)
-        return templates.TemplateResponse(request, "index.html", _context(request, result=result))
+        result = SERVICE.run(mode, job_text, coverage["target_domain"], replace_existing=True)
+        preview = document_preview.create_preview_session(
+            result.pack_dir,
+            PREVIEW_DIR,
+            metadata={
+                "ats_score": result.ats_score,
+                "company": result.company,
+                "job_title": result.job_title,
+            },
+        )
+        return templates.TemplateResponse(
+            request,
+            "preview.html",
+            _context(
+                request,
+                preview=preview,
+                result=result,
+                selected_target_domain=coverage["target_domain"],
+            ),
+        )
     except GenerationBusyError as exc:
         return templates.TemplateResponse(
             request,
@@ -63,6 +107,83 @@ def generate(request: Request, mode: str = Form(...), job_text: str = Form(...))
             request,
             "index.html",
             _context(request, error=str(exc), selected_mode=mode, job_text=job_text),
+            status_code=400,
+        )
+
+
+@app.post("/enrichment/confirm", response_class=HTMLResponse)
+def confirm_enrichment(
+    request: Request,
+    mode: str = Form(...),
+    job_text: str = Form(...),
+    target_domain: str = Form(...),
+    experience_id: str = Form(""),
+    free_text: str = Form(""),
+    question: list[str] = Form(default=[]),
+    answer: list[str] = Form(default=[]),
+):
+    try:
+        experience_memory.add_validated_memory(
+            {
+                "experience_id": experience_id,
+                "target_domain": target_domain,
+                "free_text": free_text,
+                "qa_pairs": [
+                    {"question": item_question, "answer": item_answer}
+                    for item_question, item_answer in zip(question, answer)
+                    if item_answer.strip()
+                ],
+            }
+        )
+        coverage = assess_profile_for_job(job_text, target_domain)
+        if coverage["status"] == "enrichment_required":
+            return templates.TemplateResponse(
+                request,
+                "index.html",
+                _context(
+                    request,
+                    coverage=coverage,
+                    selected_mode=mode,
+                    selected_target_domain=target_domain,
+                    job_text=job_text,
+                ),
+            )
+        result = SERVICE.run(mode, job_text, target_domain, replace_existing=True)
+        preview = document_preview.create_preview_session(
+            result.pack_dir,
+            PREVIEW_DIR,
+            metadata={
+                "ats_score": result.ats_score,
+                "company": result.company,
+                "job_title": result.job_title,
+            },
+        )
+        return templates.TemplateResponse(
+            request,
+            "preview.html",
+            _context(
+                request,
+                preview=preview,
+                result=result,
+                selected_mode=mode,
+                selected_target_domain=target_domain,
+                job_text=job_text,
+            ),
+        )
+    except (ValueError, GenerationError) as exc:
+        coverage = assess_profile_for_job(job_text, target_domain)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(
+                request,
+                error=str(exc),
+                coverage=coverage,
+                selected_mode=mode,
+                selected_target_domain=target_domain,
+                job_text=job_text,
+                enrichment_free_text=free_text,
+            ),
             status_code=400,
         )
 
@@ -155,7 +276,7 @@ def confirm_experience(
         )
 
     try:
-        result = SERVICE.run(mode, job_text)
+        result = SERVICE.run(mode, job_text, replace_existing=True)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -214,3 +335,41 @@ def download_current():
     if not archives:
         raise GenerationError("Aucun pack courant à télécharger.")
     return FileResponse(archives[0], filename=archives[0].name, media_type="application/zip")
+
+
+@app.get("/preview/{preview_id}", response_class=HTMLResponse)
+def preview_documents(request: Request, preview_id: str):
+    try:
+        preview = document_preview.load_preview_session(preview_id, PREVIEW_DIR)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, error=str(exc)),
+            status_code=404,
+        )
+    return templates.TemplateResponse(request, "preview.html", _context(request, preview=preview))
+
+
+@app.post("/preview/{preview_id}/export")
+def export_preview_documents(
+    preview_id: str,
+    cv_edited: str = Form(""),
+    cv_is_dirty: bool = Form(False),
+    lm_edited: str = Form(""),
+    lm_is_dirty: bool = Form(False),
+):
+    zip_path = document_preview.export_final_zip(
+        preview_id,
+        PREVIEW_DIR,
+        FINAL_EXPORT_DIR,
+        cv_edited=cv_edited,
+        cv_is_dirty=cv_is_dirty,
+        lm_edited=lm_edited,
+        lm_is_dirty=lm_is_dirty,
+    )
+    return FileResponse(
+        zip_path,
+        filename="ResumeForge_documents_finaux.zip",
+        media_type="application/zip",
+    )

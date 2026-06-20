@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime
 import json
+import os
 import re
 import unicodedata
 
@@ -20,6 +21,8 @@ from src.letter.french_proofreader import (
     enforce_french_docx,
 )
 from src.web.prompt_overrides import is_override_active
+from src.application.career_translation import resolve_target_domain
+from src.application.experience_memory import attach_memory_to_experiences
 
 
 # ============================================================
@@ -212,7 +215,8 @@ def load_master_profile():
     excel = pd.ExcelFile(MASTER_PROFILE_PATH)
 
     workbook = {
-        "experiences": get_sheet_case_insensitive(excel, "experiences"),
+        "experiences": pd.DataFrame(attach_memory_to_experiences(MASTER_PROFILE_PATH)),
+        "experience_memory": get_sheet_case_insensitive(excel, "experience_memory"),
         "leadership": get_sheet_case_insensitive(excel, "leadership"),
         "certifications": get_sheet_case_insensitive(excel, "certifications"),
         "skills": get_sheet_case_insensitive(excel, "skills"),
@@ -550,10 +554,8 @@ def row_search_text(row):
         "job_family_tags",
         "tools_verified",
         "skills_verified",
-        "skills_transferable",
-        "skills_exposed",
         "kpis_verified",
-        "notes",
+        "validated_memory",
     ]
 
     values = []
@@ -1404,8 +1406,6 @@ def select_technical_skills(
 
     candidates = []
     target_skills = target_profile_skills(skills_by_target_df, parsed_job, max_skills=12)
-    for index, skill in enumerate(target_skills):
-        candidates.append((skill, 220 - index))
 
     flags = _context_flags(job_text)
     supply_context = flags["supply"]
@@ -1647,8 +1647,6 @@ def select_technical_skills(
             "skills",
             "skill_tags",
             "technical_skills",
-            "skills_transferable",
-            "skills_exposed",
         ]:
             raw = get_value(row, [col], "")
 
@@ -1773,140 +1771,7 @@ def select_technical_skills(
 
                 candidates.append((translate_skill(skill), score))
 
-    # 3. Fallback contextualisé propre
-    fallback_by_context = []
-
-    if supply_context:
-        fallback_by_context += [
-            "SAP",
-            "SAP EWM",
-            "SAP S/4HANA",
-            "Gestion ADV",
-            "Gestion export",
-            "Gestion import",
-            "Incoterms (FCA, CPT, DAP)",
-            "Coordination logistique",
-            "Coordination supply chain",
-            "Gestion des stocks",
-            "Suivi des livraisons",
-            "Gestion des opérations",
-            "Reporting opérationnel",
-            "Suivi des KPI",
-        ]
-
-    if data_context:
-        fallback_by_context += [
-            "Excel",
-            "SQL",
-            "Python",
-            "Looker",
-            "Power BI",
-            "Reporting",
-            "Suivi des KPI",
-            "Analyse de données",
-            "Dashboarding",
-            "Prévision de la demande",
-        ]
-
-    if marketing_context:
-        fallback_by_context += [
-            "Achat média",
-            "Meta Ads",
-            "Google Ads",
-            "CRM marketing",
-            "Email marketing",
-            "SEO",
-            "SEA",
-            "Analyse de performance",
-        ]
-
-    if finance_context:
-        fallback_by_context += [
-            "Analyse financière",
-            "Étude de solvabilité",
-            "Modélisation financière",
-            "Analyse du risque",
-            "Due diligence commerciale",
-            "Gestion de portefeuille clients",
-            "Structuration de financements",
-            "Analyse de données (Excel)",
-            "Reporting et tableaux de bord",
-            "CRM",
-            "Négociation commerciale",
-        ]
-
-    if commercial_context:
-        fallback_by_context += [
-            "Excel",
-            "Reporting",
-            "Analyse des besoins client",
-            "Vente conseil",
-            "CRM",
-            "SOP d’appels commerciaux",
-            "Argumentaire CAP SONCAS",
-            "Traitement des objections",
-            "Fidélisation client",
-            "Négociation commerciale",
-            "Gestion de portefeuille clients",
-            "Relance commerciale structurée",
-        ]
-
-    if office_context:
-        fallback_by_context += [
-            "Microsoft Office",
-            "Google Workspace",
-            "Word",
-            "PowerPoint",
-            "Excel",
-            "Reporting",
-            "Suivi des KPI",
-            "Documentation administrative",
-            "Gestion de données clients",
-        ]
-
-    fallback_by_context += erp_skills_for_job(job_text)
-
-    if retail_context:
-        fallback_by_context += [
-            "Vente conseil",
-            "Analyse des besoins client",
-            "Argumentaire CAP SONCAS",
-            "Traitement des objections",
-            "Fidélisation client",
-            "Découverte produit",
-            "CRM",
-            "Encaissement et parcours client",
-        ]
-
-    if project_context:
-        fallback_by_context += [
-            "Roadmap projet",
-            "Suivi des jalons",
-            "Action item tracker",
-            "Cartographie des parties prenantes",
-            "Recueil des besoins",
-            "Critères d'acceptation",
-            "Coordination UAT",
-            "Documentation de passation",
-            "Registre des risques",
-        ]
-
-    if web_context or flags["tech"]:
-        fallback_by_context += [
-            "Webflow",
-            "Figma",
-            "UI/UX",
-            "Automatisation backend",
-            "Optimisation site web",
-            "Documentation technique et passation",
-            "Recueil des besoins",
-            "Coordination UAT",
-        ]
-
-    for skill in fallback_by_context:
-        candidates.append((skill, 10))
-
-    # 4. Filtrage, traduction, déduplication
+    # 3. Filtrage, traduction, déduplication
     score_by_skill = {}
 
     for skill, score in candidates:
@@ -1990,8 +1855,8 @@ def select_technical_skills(
         available = {_skill_key(skill): skill for skill, _ in ranked}
         for preferred in preferred_ats_skills:
             key = _skill_key(preferred)
-            skill = available.get(key, preferred)
-            if skill not in selected:
+            skill = available.get(key)
+            if skill and skill not in selected:
                 selected.append(skill)
             if len(selected) >= max_skills:
                 return selected
@@ -2000,8 +1865,8 @@ def select_technical_skills(
             if not is_skill_allowed_for_job(preferred, job_text):
                 continue
             key = _skill_key(preferred)
-            skill = available.get(key, preferred)
-            if skill not in selected:
+            skill = available.get(key)
+            if skill and skill not in selected:
                 selected.append(skill)
             if len(selected) >= max_skills:
                 return selected
@@ -2034,8 +1899,6 @@ def select_technical_skills(
             key = normalize_text(preferred)
             if key in available and available[key] not in selected:
                 selected.append(available[key])
-            elif preferred not in selected:
-                selected.append(preferred)
 
             if len(selected) >= max_skills:
                 break
@@ -2045,8 +1908,10 @@ def select_technical_skills(
     selected = []
 
     for preferred in preferred_ats_skills:
-        if preferred not in selected:
-            selected.append(preferred)
+        key = normalize_text(preferred)
+        available = {normalize_text(skill): skill for skill, _ in ranked}
+        if key in available and available[key] not in selected:
+            selected.append(available[key])
         if len(selected) >= max_skills:
             return selected
 
@@ -2093,7 +1958,7 @@ ATS_SKILL_LABELS = {
 def boost_skills_with_ats_keywords(selected_skills, ats_analysis, job_text, max_skills=14):
     boosted = list(selected_skills)
     candidates = []
-    for key in ["priority_keywords", "transferable_keywords", "missing_keywords"]:
+    for key in ["injectable_keywords"]:
         value = ats_analysis.get(key, [])
         if isinstance(value, list):
             candidates.extend(value)
@@ -2113,6 +1978,63 @@ def boost_skills_with_ats_keywords(selected_skills, ats_analysis, job_text, max_
     return boosted
 
 
+SKILL_SECTION_EXCLUDED_TERMS = {
+    "tco",
+    "srm",
+    "rfi rfq rfp",
+    "matrice de kraljic",
+    "single dual sourcing",
+    "reduction des couts",
+    "reduction du risque fournisseur",
+    "amelioration des conditions contractuelles",
+    "reduction des ruptures",
+    "reduction des couts de stockage",
+    "amelioration du taux de service",
+    "amelioration de la rentabilite",
+    "optimisation du cash flow",
+    "reduction de l exposition au risque",
+}
+
+SKILL_SECTION_NOISY_PATTERNS = [
+    "action item",
+    "checklist",
+    "procedure operatoire",
+    "structuration des conditions",
+    "risque de defaut",
+    "analyse des couts complets",
+    "registre des risques",
+]
+
+
+def _skill_label_for_cv(skill: str) -> str:
+    return (
+        safe_str(skill)
+        .replace("Incoterms (FCA, CPT, DAP)", "Incoterms FCA/CPT/DAP")
+        .replace("Incoterms FCA, CPT, DAP", "Incoterms FCA/CPT/DAP")
+    )
+
+
+def curate_technical_skills(skills, max_skills=6):
+    selected = []
+    seen = set()
+    for raw_skill in skills or []:
+        skill = _skill_label_for_cv(raw_skill)
+        key = normalize_text(skill)
+        if not skill or not key:
+            continue
+        if key in SKILL_SECTION_EXCLUDED_TERMS:
+            continue
+        if any(pattern in key for pattern in SKILL_SECTION_NOISY_PATTERNS):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(skill)
+        if len(selected) >= max_skills:
+            break
+    return selected
+
+
 # ============================================================
 # FORMAT ROWS
 # ============================================================
@@ -2130,14 +2052,17 @@ def format_experience(row):
         end = get_value(row, ["date_end", "end_year"], "")
         dates = clean_dash_join(format_year_or_date(start), format_year_or_date(end))
 
-    rewrite_locked = get_value(row, ["evidence_strength"], "").casefold() == "user_validated"
+    facts_locked = get_value(row, ["evidence_strength"], "").casefold() == "user_validated"
     return {
+        "experience_id": get_value(row, ["experience_id"], ""),
         "company": company,
         "position": position,
         "location": location,
         "dates": dates,
-        "bullets": extract_truth_bullets(row, max_bullets=5 if rewrite_locked else 4),
-        "rewrite_locked": rewrite_locked,
+        "bullets": extract_truth_bullets(row, max_bullets=5 if facts_locked else 4),
+        "validated_memory": get_value(row, ["validated_memory"], ""),
+        "facts_locked": facts_locked,
+        "rewrite_locked": False,
     }
 
 
@@ -2236,7 +2161,7 @@ def build_replacements(experiences, leadership, certifications, technical_skills
         "[[LEAD_1_DATES]]": lead1.get("dates", ""),
         "[[LEAD_1_BULLETS]]": lead1.get("bullets", []),
 
-        "[[TECHNICAL_SKILLS]]": ", ".join(technical_skills),
+        "[[TECHNICAL_SKILLS]]": ", ".join(curate_technical_skills(technical_skills)),
     }
 
     return replacements
@@ -2320,6 +2245,7 @@ def optimize_cv_with_ats_guard(
     job_text,
     current_ats,
     document_language="fr",
+    target_domain="",
 ):
     candidate_experiences, candidate_leadership = improve_full_cv_with_gemini(
         selected_experiences,
@@ -2327,6 +2253,7 @@ def optimize_cv_with_ats_guard(
         job_text,
         ats_analysis=current_ats,
         document_language=document_language,
+        target_domain=target_domain,
     )
     candidate_text = build_resume_ats_text(
         experiences=candidate_experiences,
@@ -2355,6 +2282,9 @@ def main():
     print("Lecture de la job description...")
     job_text = load_job_description()
     document_language = detect_document_language(job_text)
+    requested_target_domain = os.getenv("RESUMEFORGE_TARGET_DOMAIN", "").strip()
+    resolved_target_domain = resolve_target_domain(job_text, requested_target_domain)
+    target_domain = resolved_target_domain["key"]
     print(f"Langue des documents : {document_language}")
 
     print("Chargement du master profile...")
@@ -2401,7 +2331,6 @@ def main():
         skills_by_target_df=skills_by_target_df,
         claim_rules_df=claim_rules_df,
     )
-
     initial_ats_text = build_resume_ats_text(
         experiences=selected_experiences,
         leadership=selected_leadership,
@@ -2421,6 +2350,7 @@ def main():
         ats_initial,
         selection_parsed_job["normalized_text"],
     )
+    selected_skills = curate_technical_skills(selected_skills)
     initial_ats_text = build_resume_ats_text(
         experiences=selected_experiences,
         leadership=selected_leadership,
@@ -2438,6 +2368,7 @@ def main():
         job_text=job_text,
         current_ats=ats_initial,
         document_language=document_language,
+        target_domain=target_domain,
     )
 
     if ats_final.get("score", 0) < ATS_ACCEPTABLE_SCORE:
@@ -2450,6 +2381,7 @@ def main():
             job_text=job_text,
             current_ats=ats_final,
             document_language=document_language,
+            target_domain=target_domain,
         )
 
     if document_language == "en":

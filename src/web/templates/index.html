@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ResumeForge</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+    <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
     <main>
@@ -51,12 +51,23 @@
           <textarea id="job_text" name="job_text" required placeholder="Colle l’offre ici…">{{ job_text or '' }}</textarea>
         </label>
 
+        <label class="field compact-field" for="target_domain">
+          Métier cible
+          <select id="target_domain" name="target_domain">
+            <option value="">Détection automatique depuis l’offre</option>
+            {% for key, domain in career_domains.items() %}
+            <option value="{{ key }}" {% if selected_target_domain == key %}selected{% endif %}>{{ domain.label }}</option>
+            {% endfor %}
+          </select>
+          <small>Les choix ci-dessus sont des raccourcis. Tout autre métier sera détecté depuis l’offre et modélisé automatiquement.</small>
+        </label>
+
         <button id="generate-button" class="button primary" type="submit">Générer</button>
         <div id="generation-progress" class="generation-progress" role="status" aria-live="polite" hidden>
           <span class="spinner" aria-hidden="true"></span>
           <span>
             <strong>Génération en cours…</strong>
-            <small>Une seule génération est autorisée. Attends la fin avant de relancer.</small>
+            <small>Si tu relances depuis la page, la nouvelle génération remplacera la précédente.</small>
           </span>
         </div>
       </form>
@@ -100,7 +111,7 @@
             <input id="experience-mode" type="hidden" name="mode" value="{{ selected_mode or 'cv_lm' }}">
             <input id="experience-job-text" type="hidden" name="job_text" value="{{ job_text or '' }}">
             <label class="field">
-              Raconte l’expérience avec les faits, outils, résultats et exemples concrets
+              Décrivez concrètement ce que vous faisiez au quotidien
               <textarea name="experience_text" required placeholder="Exemple : j’ai travaillé chez…">{{ experience_text or '' }}</textarea>
             </label>
             <button class="button small" type="submit">Analyser avant ajout</button>
@@ -167,11 +178,79 @@
         </div>
       </details>
     </main>
+
+    {% if coverage %}
+    <dialog id="enrichment-dialog" open aria-labelledby="enrichment-title">
+      <form class="enrichment-dialog" action="/enrichment/confirm" method="post">
+        <input type="hidden" name="mode" value="{{ selected_mode or 'cv' }}">
+        <input type="hidden" name="job_text" value="{{ job_text or '' }}">
+        <input type="hidden" name="target_domain" value="{{ coverage.target_domain }}">
+        <div class="dialog-heading">
+          <div>
+            <span class="eyebrow">Mode enrichissement</span>
+            <h2 id="enrichment-title">{{ coverage.target_label }} · {{ coverage.overall_score }}% couvert</h2>
+            <p>Les preuves actuelles sont insuffisantes pour une traduction métier crédible. Valide uniquement des faits réels.</p>
+          </div>
+          <button class="dialog-close" type="button" aria-label="Fermer" onclick="document.getElementById('enrichment-dialog').close()">×</button>
+        </div>
+
+        <div class="coverage-grid">
+          {% for layer_name, layer in coverage.layers.items() %}
+          <div class="coverage-card">
+            <strong>{{ layer_name | replace('_', ' ') | title }}</strong>
+            <span>{{ layer.score }}%</span>
+          </div>
+          {% endfor %}
+        </div>
+
+        <label class="field compact-field">
+          Expérience concernée
+          <select name="experience_id" required>
+            <option value="">Sélectionner une expérience réelle</option>
+            {% for experience in experience_options %}
+            <option value="{{ experience.id }}">{{ experience.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="enrichment-questions">
+          {% for question in coverage.questions %}
+          <label class="field">
+            {{ question }}
+            <input type="hidden" name="question" value="{{ question }}">
+            <input name="answer" placeholder="Réponse factuelle et vérifiable">
+          </label>
+          {% endfor %}
+        </div>
+
+        <label class="field">
+          Décrivez concrètement ce que vous faisiez au quotidien.
+          <textarea name="free_text" placeholder="Exemple : je suivais les prix, construisais des tableaux Excel et préparais des reportings…">{{ enrichment_free_text or '' }}</textarea>
+        </label>
+        <p class="credibility-note">Aucune information ne sera enregistrée avant votre validation.</p>
+        <button class="button primary" type="submit">Valider les faits et générer</button>
+      </form>
+    </dialog>
+    {% endif %}
+
     <script>
       const form = document.getElementById("generation-form");
       const button = document.getElementById("generate-button");
       const progress = document.getElementById("generation-progress");
       const experienceForm = document.getElementById("experience-proposal-form");
+
+      function resetGenerationForm() {
+        form.dataset.submitted = "false";
+        button.disabled = false;
+        button.textContent = "Générer";
+        progress.hidden = true;
+
+        form.querySelectorAll("input, textarea").forEach((control) => {
+          control.readOnly = false;
+        });
+      }
+
+      window.addEventListener("pageshow", resetGenerationForm);
 
       form.addEventListener("submit", (event) => {
         if (form.dataset.submitted === "true") {
@@ -197,6 +276,7 @@
             document.getElementById("job_text").value;
         });
       }
+
     </script>
   </body>
 </html>

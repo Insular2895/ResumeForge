@@ -75,7 +75,12 @@ class DocxTemplateRenderer:
             if placeholder in paragraph_text:
                 bullets_text = replacements.get(placeholder, "")
                 bullets = self._split_bullets(bullets_text)
-                self._replace_bullet_placeholder_with_paragraphs(paragraph, bullets)
+                self._remove_blank_paragraphs_before(paragraph)
+                self._replace_bullet_placeholder_with_paragraphs(
+                    paragraph,
+                    bullets,
+                    add_block_spacing=placeholder in {"[[EXP_1_BULLETS]]", "[[EXP_2_BULLETS]]", "[[LEAD_1_BULLETS]]"},
+                )
                 return
 
         for placeholder in paragraph_placeholders:
@@ -145,20 +150,40 @@ class DocxTemplateRenderer:
         cleaned = re.sub(r"^(\s*)[-–—]\s*", r"\1", cleaned)
         return cleaned
 
-    def _replace_bullet_placeholder_with_paragraphs(self, paragraph, bullets):
+    def _replace_bullet_placeholder_with_paragraphs(self, paragraph, bullets, add_block_spacing=False):
         if not bullets:
             self._remove_paragraph(paragraph)
             return
 
         self._set_paragraph_text_preserve_style(paragraph, bullets[0])
+        self._apply_bullet_spacing(paragraph, is_last=len(bullets) == 1, add_block_spacing=add_block_spacing)
 
         previous = paragraph
 
-        for bullet in bullets[1:]:
+        for index, bullet in enumerate(bullets[1:], start=1):
             new_paragraph = self._insert_paragraph_after(previous)
             self._copy_paragraph_format(paragraph, new_paragraph)
             self._set_paragraph_text_preserve_style(new_paragraph, bullet)
+            self._apply_bullet_spacing(
+                new_paragraph,
+                is_last=index == len(bullets) - 1,
+                add_block_spacing=add_block_spacing,
+            )
             previous = new_paragraph
+
+    def _remove_blank_paragraphs_before(self, paragraph):
+        current = paragraph._p.getprevious()
+        while current is not None and current.tag == qn("w:p"):
+            previous = current.getprevious()
+            candidate = Paragraph(current, paragraph._parent)
+            if candidate.text.strip():
+                break
+            current.getparent().remove(current)
+            current = previous
+
+    def _apply_bullet_spacing(self, paragraph, is_last=False, add_block_spacing=False):
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(6 if add_block_spacing and is_last else 1)
 
     def _split_bullets(self, bullets_text):
         if bullets_text is None:

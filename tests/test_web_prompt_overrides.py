@@ -93,7 +93,56 @@ def test_cv_enhancer_applies_custom_override_before_gemini(monkeypatch):
     assert captured["prompt"].endswith("CUSTOM")
 
 
-def test_cv_enhancer_never_rewrites_locked_user_validated_experience(monkeypatch):
+def test_cv_enhancer_uses_supported_translation_terms_and_forbids_unsupported(monkeypatch):
+    from src.llm import cv_enhancer
+
+    captured = {}
+    monkeypatch.setattr(cv_enhancer, "is_gemini_enabled", lambda: True)
+    monkeypatch.setattr(
+        cv_enhancer,
+        "ask_gemini",
+        lambda prompt: captured.setdefault("prompt", prompt) or '{"experiences": [], "leadership": []}',
+    )
+
+    cv_enhancer.improve_full_cv_with_gemini(
+        [{"company": "Minero", "position": "Acheteur", "bullets": ["Sourcing et négociation fournisseurs."]}],
+        [],
+        "Acheteur international",
+    )
+
+    assert '"target_domain": "procurement"' in captured["prompt"]
+    assert '"supported_terms"' in captured["prompt"]
+    assert "Les termes non soutenus sont interdits" in captured["prompt"]
+
+
+def test_cv_enhancer_uses_the_domain_resolved_by_the_web_flow(monkeypatch):
+    from src.llm import cv_enhancer
+
+    captured = {}
+    monkeypatch.setattr(cv_enhancer, "is_gemini_enabled", lambda: True)
+    monkeypatch.setattr(
+        cv_enhancer,
+        "resolve_target_domain",
+        lambda job_text, requested_domain="": captured.setdefault(
+            "resolved",
+            {
+                "key": requested_domain,
+                "model": {
+                    "label": "Acoustique",
+                    "layers": {"concepts": ["acoustique"], "actions": ["mesurer"], "objects": ["signaux"], "results": ["réduction du bruit"]},
+                    "questions": [],
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(cv_enhancer, "ask_gemini", lambda prompt: '{"experiences": [], "leadership": []}')
+
+    cv_enhancer.improve_full_cv_with_gemini([], [], "Offre générique", target_domain="acoustic_engineering")
+
+    assert captured["resolved"]["key"] == "acoustic_engineering"
+
+
+def test_cv_enhancer_can_translate_user_validated_facts_without_changing_the_source(monkeypatch):
     from src.llm import cv_enhancer
 
     monkeypatch.setattr(cv_enhancer, "is_gemini_enabled", lambda: True)
@@ -111,10 +160,12 @@ def test_cv_enhancer_never_rewrites_locked_user_validated_experience(monkeypatch
             "company": "Passy Primeur",
             "position": "Primeur sur les marchés",
             "bullets": ["Participation à l'approvisionnement auprès de fournisseurs à Rungis."],
-            "rewrite_locked": True,
+            "facts_locked": True,
+            "rewrite_locked": False,
         }
     ]
 
     experiences, _ = cv_enhancer.improve_full_cv_with_gemini(source, [], "Acheteur fruits et légumes")
 
-    assert experiences == source
+    assert source[0]["bullets"] == ["Participation à l'approvisionnement auprès de fournisseurs à Rungis."]
+    assert experiences[0]["bullets"] == ["Approvisionnement quotidien et gestion des stocks."]

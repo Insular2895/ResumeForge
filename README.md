@@ -36,6 +36,8 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 | Lettre DOCX | Génère uniquement une LM finale Word, sans export Markdown |
 | Validation | Bloque la LM si elle invente un chiffre, un outil, une expérience ou un fait entreprise |
 | Base métier | Réutilise les termes précis par domaine sans alourdir le prompt |
+| Traduction métier | Traduit les mêmes faits vers Achats, Supply Chain, Finance, Data, Gestion ou Projet sans inventer d'expérience |
+| Mémoire d'expérience | Conserve les enrichissements explicitement validés pour améliorer les générations suivantes |
 | Tracker | Met à jour le suivi de candidature sans casser le pipeline si Sheets est indisponible |
 | Sécurité | Garde `.env`, profils, templates privés et outputs hors Git |
 
@@ -150,7 +152,7 @@ Prérequis :
 
 - Python 3.11 recommandé ;
 - une clé Gemini pour les générations utilisant Gemini ;
-- Word ou LibreOffice uniquement si tu veux modifier les templates DOCX.
+- Word uniquement si tu veux modifier les templates DOCX source.
 
 ```bash
 git clone https://github.com/Insular2895/ResumeForge.git
@@ -172,6 +174,17 @@ Puis ouvrir :
 http://127.0.0.1:8765
 ```
 
+Après génération, ResumeForge ouvre une prévisualisation TipTap type Word :
+
+- onglets `CV` et `Lettre de motivation` ;
+- page blanche A4 centrée sur fond gris ;
+- styles CV verrouillés côté CSS ;
+- édition directe du texte dans le document ;
+- bouton `Télécharger ZIP` pour récupérer les PDF finaux.
+
+Le MVP ne dépend pas d'OnlyOffice, d'un iframe Document Server, d'un service
+worker, d'un éditeur Word en ligne ou d'un flux template DOCX secondaire.
+
 Au premier lancement, ouvre `Références locales` et ajoute :
 
 - le profil Excel maître ;
@@ -182,10 +195,19 @@ Au premier lancement, ouvre `Références locales` et ajoute :
 L'interface permet :
 
 - de choisir `CV`, `CV + LM` ou `LM seulement` ;
+- de sélectionner un métier cible ou de laisser ResumeForge le détecter ;
+- de mesurer la couverture du profil selon les concepts, actions, objets et résultats du métier ;
+- de collecter dans un popup les faits manquants avant génération ;
 - de remplacer les références privées locales ;
 - de personnaliser séparément les instructions Gemini CV et LM ;
 - de télécharger le pack courant au format ZIP.
 - de bloquer les doubles clics et toute seconde génération simultanée.
+
+Le moteur de traduction métier est documenté dans
+[`docs/CAREER_TRANSLATION_ENGINE.md`](docs/CAREER_TRANSLATION_ENGINE.md).
+Les métiers préconfigurés servent uniquement de raccourcis : toute autre offre
+suffisamment détaillée produit automatiquement son propre modèle métier à quatre
+couches, conservé localement pour les générations suivantes.
 
 L'interface écoute uniquement sur `127.0.0.1`. Ne lance pas une génération
 depuis le terminal pendant qu'une génération web est en cours, car les deux

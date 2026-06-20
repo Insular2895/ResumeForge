@@ -137,9 +137,10 @@ def test_erp_skills_follow_job_specific_software():
     assert erp_skills_for_job(normalize_text("Gestionnaire ADV sur ERP")) == ["ERP"]
 
 
-def test_boost_skills_with_ats_keywords_keeps_skill_section_clean():
+def test_boost_skills_with_ats_keywords_only_adds_evidence_backed_keywords():
     ats_analysis = {
         "priority_keywords": ["commandes via sap", "sap", "ruptures de stocks", "pénalités", "edi"],
+        "injectable_keywords": ["excel"],
         "transferable_keywords": [],
         "missing_keywords": [],
     }
@@ -150,8 +151,9 @@ def test_boost_skills_with_ats_keywords_keeps_skill_section_clean():
         normalize_text("assistant ADV SAP stocks pénalités commandes"),
     )
 
-    assert "SAP" in boosted
-    assert "EDI" in boosted
+    assert "SAP" not in boosted
+    assert "EDI" not in boosted
+    assert "Excel" in boosted
     assert "Commandes via SAP" not in boosted
     assert "Gestion des ruptures de stock" not in boosted
     assert "Gestion des pénalités" not in boosted
