@@ -31,7 +31,7 @@ def test_application_context_exposes_dynamic_translation_bounded_by_final_cv(tmp
         {"raw_text": "Ingénieur acoustique", "company": "A", "job_title": "Ingénieur", "keywords": []},
         cv_docx,
         cv_markdown,
-        {},
+        {"cv_headline": "INGÉNIEUR ACOUSTIQUE", "selected_experiences": []},
         [],
         [],
         "not_requested",
@@ -42,3 +42,5 @@ def test_application_context_exposes_dynamic_translation_bounded_by_final_cv(tmp
     assert captured["resolved"]["key"] == "acoustic_engineering"
     assert "analyse acoustique" in context["career_translation_context"]["supported_terms"]
     assert "réduction du bruit" in context["career_translation_context"]["unsupported_terms"]
+    assert context["cv_headline"] == "INGÉNIEUR ACOUSTIQUE"
+    assert "selected_cv_leadership" not in context

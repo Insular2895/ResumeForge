@@ -36,7 +36,7 @@ type StructuredDocumentProps = {
   onChange: (html: string, isDirty: boolean) => void
 }
 
-const prefixLabels = ['Compétences techniques :', 'Intérêts :', 'Langues :']
+const prefixLabels = ['Compétences techniques :', 'Technical skills:', 'Langues :', 'Languages:']
 
 function escapeHtml(value: string): string {
   return value

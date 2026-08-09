@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 from datetime import datetime
 from html.parser import HTMLParser
 import html
@@ -13,6 +14,7 @@ import zipfile
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 
@@ -21,15 +23,15 @@ CV_SECTION_HEADINGS = {
     "education",
     "expériences",
     "experiences",
-    "leadership et activités",
-    "leadership et activites",
-    "compétences et intérêts",
-    "competences et interets",
+    "formations & certifications",
+    "compétences & langues",
+    "competences & langues",
+    "skills & languages",
 }
 
 CV_INLINE_LABELS = {"certifications"}
-CV_PREFIX_LABELS = ("Compétences techniques :", "Intérêts :", "Langues :")
-CV_ENTRY_SECTIONS = {"expériences", "experiences", "leadership et activités", "leadership et activites"}
+CV_PREFIX_LABELS = ("Compétences techniques :", "Technical skills:", "Langues :", "Languages:")
+CV_ENTRY_SECTIONS = {"expériences", "experiences"}
 EMAIL_PATTERN = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 
 
@@ -418,7 +420,7 @@ body {
   margin: 0;
   background: #eef1f6;
   color: #111;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Calibri, Aptos, Arial, sans-serif;
 }
 
 .document-workspace {
@@ -441,7 +443,7 @@ body {
   position: relative;
   min-height: calc(297mm - 28mm);
   color: #111;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Calibri, Aptos, Arial, sans-serif;
   font-size: 11pt;
   line-height: 1.18;
 }
@@ -795,6 +797,13 @@ def _write_pack_file(archive: zipfile.ZipFile, path: Path, *, preferred_name: st
 
 
 def _replace_paragraph_text(paragraph, text: str) -> None:
+    # python-docx exposes hyperlink text through ``paragraph.text`` but not
+    # through ``paragraph.runs``. Replacing only the regular runs therefore
+    # leaves the old hyperlink visible and duplicates its text. A hyperlink is
+    # removed only when its paragraph was genuinely edited; unchanged
+    # paragraphs are skipped by ``_write_edited_docx`` below.
+    for hyperlink in list(paragraph._p.findall(qn("w:hyperlink"))):
+        paragraph._p.remove(hyperlink)
     if paragraph.runs:
         paragraph.runs[0].text = text
         for run in paragraph.runs[1:]:
@@ -831,7 +840,69 @@ def _force_regular(paragraph) -> None:
         run.bold = False
 
 
+def _normalized_editable_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _editable_body_paragraphs(document: Document) -> list[Paragraph]:
+    """Return body paragraphs in the same order/filter used by the preview."""
+    paragraphs: list[Paragraph] = []
+    seen_emails: set[str] = set()
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        paragraph_emails = _emails_in_text(text)
+        if _is_email_only_line(text) and paragraph_emails <= seen_emails:
+            continue
+        seen_emails.update(paragraph_emails)
+        paragraphs.append(paragraph)
+    return paragraphs
+
+
+def _remove_duplicate_email_paragraphs(document: Document) -> None:
+    seen_emails: set[str] = set()
+    for paragraph in list(document.paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        paragraph_emails = _emails_in_text(text)
+        if _is_email_only_line(text) and paragraph_emails <= seen_emails:
+            _remove_paragraph(paragraph)
+            continue
+        seen_emails.update(paragraph_emails)
+
+
+def _flatten_document_sections(document: Document) -> None:
+    """Keep one section so office viewers do not render an inline marker."""
+    section_properties = list(document._element.findall(".//" + qn("w:sectPr")))
+    if len(section_properties) <= 1:
+        return
+
+    body_section = document._element.body.find(qn("w:sectPr"))
+    if body_section is None:
+        return
+    internal_sections = [section for section in section_properties if section is not body_section]
+    if not internal_sections:
+        return
+
+    # The first section owns the header/photo layout. Reuse its page settings
+    # for the now-single-section document, then remove every inline section
+    # break (the source of the small square after "Expériences" in Quick Look).
+    first_section = internal_sections[0]
+    for child in list(body_section):
+        body_section.remove(child)
+    for child in first_section:
+        body_section.append(deepcopy(child))
+    for section in internal_sections:
+        parent = section.getparent()
+        if parent is not None:
+            parent.remove(section)
+
+
 def _normalize_cv_document(document: Document) -> None:
+    _remove_duplicate_email_paragraphs(document)
+    _flatten_document_sections(document)
     in_certifications = False
     current_section = ""
     previous_non_empty_was_list = False
@@ -877,12 +948,15 @@ def _write_edited_docx(source_path: Path, edited_html: str, output_path: Path) -
         return
 
     index = 0
-    for paragraph in document.paragraphs:
+    for paragraph in _editable_body_paragraphs(document):
         if index >= len(edited_texts):
             break
-        if not paragraph.text.strip():
-            continue
-        _replace_paragraph_text(paragraph, edited_texts[index])
+        edited_text = edited_texts[index]
+        # The browser normalizes whitespace while building editable blocks.
+        # Treat the normalized equivalent as unchanged so Word hyperlinks,
+        # mixed bold runs, fonts and spacing remain byte-for-byte intact.
+        if _normalized_editable_text(paragraph.text) != _normalized_editable_text(edited_text):
+            _replace_paragraph_text(paragraph, edited_text)
         index += 1
 
     for table in document.tables:
@@ -893,7 +967,9 @@ def _write_edited_docx(source_path: Path, edited_html: str, output_path: Path) -
                         break
                     if not paragraph.text.strip():
                         continue
-                    _replace_paragraph_text(paragraph, edited_texts[index])
+                    edited_text = edited_texts[index]
+                    if _normalized_editable_text(paragraph.text) != _normalized_editable_text(edited_text):
+                        _replace_paragraph_text(paragraph, edited_text)
                     index += 1
 
     _normalize_cv_document(document)

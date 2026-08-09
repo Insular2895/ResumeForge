@@ -22,6 +22,7 @@ def _as_list(value) -> list:
 def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
     company = report.get("company_detected", "")
     job_title = report.get("job_title_detected", "")
+    cv_headline = report.get("cv_headline", "")
 
     lines = [
         "# CV final personnalisé - Lucas Pertusa",
@@ -29,6 +30,7 @@ def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
         "## Candidature cible",
         f"- Entreprise cible : {company}",
         f"- Poste cible : {job_title}",
+        f"- Titre du CV : {cv_headline}",
         "",
         "## Expériences sélectionnées",
     ]
@@ -50,22 +52,9 @@ def build_cv_markdown_from_report(report: dict, docx_markdown: str = "") -> str:
         for tag in _as_list(experience.get("reason_tags")):
             if tag:
                 lines.append(f"- Terme associé : {tag}")
-
-    lines.extend(["", "## Leadership sélectionné"])
-    for item in _as_list(report.get("selected_leadership")):
-        if not isinstance(item, dict):
-            continue
-        title = " - ".join(
-            part
-            for part in [
-                item.get("organisation", ""),
-                item.get("role", ""),
-                item.get("dates", ""),
-            ]
-            if part
-        )
-        if title:
-            lines.append(f"- {title}")
+        for bullet in _as_list(experience.get("bullets")):
+            if bullet:
+                lines.append(f"- {bullet}")
 
     lines.extend(["", "## Certifications et formations"])
     for certification in _as_list(report.get("selected_certifications")):

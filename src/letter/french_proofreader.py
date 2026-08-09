@@ -30,6 +30,8 @@ ALLOWED_PROFESSIONAL_TERMS = {
     "fiabiliser",
     "impacte",
     "kpi",
+    "passation",
+    "passations",
     "reporting",
     "sap",
     "workspace",

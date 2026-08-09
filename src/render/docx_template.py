@@ -9,7 +9,27 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 
 
-DEFAULT_FONT_NAME = "Arial"
+DEFAULT_FONT_NAME = "Calibri"
+
+SECTION_HEADINGS = {
+    "éducation",
+    "education",
+    "formations & certifications",
+    "expériences",
+    "experiences",
+    "compétences & langues",
+    "competences & langues",
+    "skills & languages",
+}
+
+OBSOLETE_CV_LINES = {
+    "leadership et activités",
+    "leadership et activites",
+    "leadership",
+    "intérêts",
+    "interets",
+    "interests",
+}
 
 
 class DocxTemplateRenderer:
@@ -26,6 +46,7 @@ class DocxTemplateRenderer:
         doc = Document(self.template_path)
 
         self._normalize_single_column_layout(doc)
+        self._remove_obsolete_cv_lines(doc)
         self._force_document_font(doc, DEFAULT_FONT_NAME)
 
         for paragraph in list(doc.paragraphs):
@@ -38,6 +59,7 @@ class DocxTemplateRenderer:
                         self._replace_paragraph(paragraph, replacements)
 
         self._force_document_font(doc, DEFAULT_FONT_NAME)
+        self._remove_unresolved_placeholders(doc)
         self._force_font_sizes(doc)
 
         doc.save(output_path)
@@ -45,8 +67,16 @@ class DocxTemplateRenderer:
 
     def _normalize_single_column_layout(self, doc):
         for break_element in doc._element.findall(".//" + qn("w:br")):
-            if break_element.get(qn("w:type")) == "column":
+            if break_element.get(qn("w:type")) in {"column", "page"}:
                 break_element.getparent().remove(break_element)
+
+        # Les sections internes provenant de templates multicolonnes sont des
+        # artefacts de mise en page. La dernière section du document conserve
+        # seule les dimensions et marges A4.
+        body_section = doc._element.body.sectPr
+        for section_properties in list(doc._element.findall(".//" + qn("w:pPr") + "/" + qn("w:sectPr"))):
+            if section_properties is not body_section:
+                section_properties.getparent().remove(section_properties)
 
         for section_properties in doc._element.findall(".//" + qn("w:sectPr")):
             for columns in section_properties.findall(qn("w:cols")):
@@ -63,7 +93,7 @@ class DocxTemplateRenderer:
         bullet_placeholders = {
             "[[EXP_1_BULLETS]]",
             "[[EXP_2_BULLETS]]",
-            "[[LEAD_1_BULLETS]]",
+            "[[EXP_3_BULLETS]]",
             "[[CERTIFICATION_ENTRIES]]",
         }
 
@@ -79,7 +109,7 @@ class DocxTemplateRenderer:
                 self._replace_bullet_placeholder_with_paragraphs(
                     paragraph,
                     bullets,
-                    add_block_spacing=placeholder in {"[[EXP_1_BULLETS]]", "[[EXP_2_BULLETS]]", "[[LEAD_1_BULLETS]]"},
+                    add_block_spacing=placeholder in {"[[EXP_1_BULLETS]]", "[[EXP_2_BULLETS]]", "[[EXP_3_BULLETS]]"},
                 )
                 return
 
@@ -104,10 +134,8 @@ class DocxTemplateRenderer:
 
         label_prefixes = [
             "Compétences techniques :",
-            "Intérêts :",
             "Langues :",
             "Technical skills:",
-            "Interests:",
             "Languages:",
             "Certifications :",
             "Formation :",
@@ -124,6 +152,8 @@ class DocxTemplateRenderer:
 
         # Remplacement run par run = conserve gras, italique, taille, etc.
         for run in paragraph.runs:
+            if self._run_has_drawing(run):
+                continue
             run_text = run.text
 
             for key, value in replacements.items():
@@ -239,26 +269,25 @@ class DocxTemplateRenderer:
 
     def _set_label_line(self, paragraph, text, label):
         """
-        Pour :
-        Compétences techniques :
-        Intérêts :
-        Langues :
+        Pour les lignes avec un libellé fixe, seul ce libellé est en gras.
 
         Seul le label est en gras.
         """
+        content = text.replace(label, "", 1)
+        if not content.strip():
+            self._remove_paragraph(paragraph)
+            return
         for run in paragraph.runs:
-            run.text = ""
+            if not self._run_has_drawing(run):
+                run.text = ""
 
-        if paragraph.runs:
-            title_run = paragraph.runs[0]
-        else:
+        title_run = next((run for run in paragraph.runs if not self._run_has_drawing(run)), None)
+        if title_run is None:
             title_run = paragraph.add_run()
 
         title_run.text = label
         title_run.bold = True
         self._force_run_font(title_run, DEFAULT_FONT_NAME)
-
-        content = text.replace(label, "", 1)
 
         content_run = paragraph.add_run(content)
         content_run.bold = False
@@ -267,10 +296,11 @@ class DocxTemplateRenderer:
     def _set_paragraph_text_preserve_style(self, paragraph, text):
         text = str(text)
 
-        if paragraph.runs:
-            first_run = paragraph.runs[0]
+        text_runs = [run for run in paragraph.runs if not self._run_has_drawing(run)]
+        if text_runs:
+            first_run = text_runs[0]
 
-            for run in paragraph.runs:
+            for run in text_runs:
                 run.text = ""
 
             first_run.text = text
@@ -291,8 +321,12 @@ class DocxTemplateRenderer:
 
     def _clear_paragraph(self, paragraph):
         for run in paragraph.runs:
-            run.text = ""
+            if not self._run_has_drawing(run):
+                run.text = ""
             self._force_run_font(run, DEFAULT_FONT_NAME)
+
+    def _run_has_drawing(self, run):
+        return bool(run._element.findall(".//" + qn("w:drawing")))
 
     def _insert_paragraph_after(self, paragraph):
         new_p = OxmlElement("w:p")
@@ -369,10 +403,7 @@ class DocxTemplateRenderer:
         r_fonts.set(qn("w:cs"), font_name)
 
     def _force_font_sizes(self, doc):
-        """
-        Force 10pt partout, 11pt pour les paragraphes dont au moins un run est bold.
-        Évite le mélange de tailles causé par l'injection de runs via python-docx.
-        """
+        """Applique la hiérarchie V3 selon le rôle structurel du paragraphe."""
         all_paragraphs = list(doc.paragraphs)
         for table in doc.tables:
             for row in table.rows:
@@ -383,8 +414,40 @@ class DocxTemplateRenderer:
             if not paragraph.runs:
                 continue
 
-            is_bold = any(run.bold for run in paragraph.runs if run.text.strip())
-            target_size = Pt(11) if is_bold else Pt(10)
+            text = paragraph.text.strip()
+            normalized = re.sub(r"\s+", " ", text).casefold()
+            if not text:
+                target_size = Pt(10)
+            elif normalized in SECTION_HEADINGS:
+                target_size = Pt(11)
+                for run in paragraph.runs:
+                    if run.text.strip():
+                        run.bold = True
+            elif normalized.startswith("lucas pertusa"):
+                target_size = Pt(11.5)
+            elif paragraph.alignment is not None and text == text.upper() and len(text) <= 90:
+                target_size = Pt(12.5)
+                for run in paragraph.runs:
+                    if run.text.strip():
+                        run.bold = True
+            else:
+                target_size = Pt(10)
 
             for run in paragraph.runs:
                 run.font.size = target_size
+
+    def _remove_obsolete_cv_lines(self, doc):
+        for paragraph in list(doc.paragraphs):
+            normalized = re.sub(r"\s+", " ", paragraph.text).strip().casefold().rstrip(":")
+            if normalized in OBSOLETE_CV_LINES or normalized.startswith(("intérêts :", "interests:")):
+                self._remove_paragraph(paragraph)
+
+    def _remove_unresolved_placeholders(self, doc):
+        paragraphs = list(doc.paragraphs)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    paragraphs.extend(cell.paragraphs)
+        for paragraph in list(paragraphs):
+            if re.search(r"\[\[[A-Z0-9_ ]+\]\]", paragraph.text):
+                self._remove_paragraph(paragraph)

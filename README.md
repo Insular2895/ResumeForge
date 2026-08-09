@@ -32,6 +32,8 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 | Fonction | Rôle |
 |---|---|
 | CV ciblé | Sélectionne les expériences et adapte les bullets à l'offre |
+| CV V3 une page | Reprend l'intitulé exact de l'annonce, sélectionne jusqu'à 3 expériences et bloque tout export dépassant une page A4 |
+| Compétences dynamiques | Croise les exigences de la JD avec les preuves réelles du candidat et n'affiche jamais une compétence non soutenue |
 | CV Markdown temporaire | Produit une source propre pour Gemini, puis la supprime après LM DOCX réussie |
 | Lettre DOCX | Génère uniquement une LM finale Word, sans export Markdown |
 | Validation | Bloque la LM si elle invente un chiffre, un outil, une expérience ou un fait entreprise |
@@ -99,6 +101,45 @@ Elle utilise uniquement :
 - les fichiers de référence LM.
 
 La validation bloque l'export DOCX si la LM contient un élément inventé : chiffre, outil, expérience, formation, compétence, fait entreprise, annotation, placeholder ou survente d'expertise.
+
+## Générateur CV V3
+
+Le pipeline CV suit désormais ce contrat :
+
+```text
+Job Description
+  -> intitulé nettoyé -> [[CV_HEADLINE]]
+  -> extraction des exigences techniques et niveaux demandés
+  -> index des preuves candidat (expériences, outils, mémoire validée, formations)
+  -> intersection preuve/exigence et niveaux candidats conservateurs
+  -> sélection de 3 expériences maximum et de 4 / 4 / 2 bullets maximum
+  -> reformulation nominale française contrôlée
+  -> rendu Calibri
+  -> mesure A4, compaction prudente et blocage si le CV dépasse encore une page
+```
+
+Les anciennes entrées de la feuille `leadership` sont migrées dans `experiences`
+avec `is_freelance=true`. Seules ces expériences reçoivent la mention
+`| Freelance`; ResumeForge n'ajoute jamais automatiquement `Stage`,
+`Alternance`, `CDI`, `CDD` ou `Intérim` aux autres expériences. Les nouveaux CV
+ne génèrent plus de rubriques Leadership ou Intérêts.
+
+`skills` et `skills_by_target` peuvent rester dans les anciens classeurs pour
+l'historique, mais le moteur principal ne les utilise plus. La JD détermine la
+pertinence et ne constitue jamais une preuve candidat : une exigence SQL,
+Power BI ou SAP sans preuve correspondante reste absente du CV.
+
+Migration idempotente du profil :
+
+```bash
+src/.venv/bin/python scripts/migrate_master_profile_v3.py \
+  data/reference/master_profile_example.xlsx \
+  data/reference/master_profile.xlsx
+```
+
+Le script crée une sauvegarde avant écriture, conserve `leadership_legacy`,
+évite les doublons et normalise les formations en `SAP Easy Access` et
+`SAP S/4HANA – Extended Warehouse Management (EWM)`.
 
 ## Commandes
 
@@ -386,9 +427,14 @@ Template privé :
 templates/base_cv.docx
 ```
 
-Il contient les placeholders CV utilisés par `run.py` et `run_application.py`.
+Il suit le template V3 et contient `[[CV_HEADLINE]]`, les blocs `EXP_1`,
+`EXP_2`, `EXP_3`, `[[CERTIFICATION_ENTRIES]]` et
+`[[TECHNICAL_SKILLS]]`. `COMPANY` est le nom canonique ; `EXP_3_COMPAGNY`
+reste uniquement supporté en lecture pour les anciens templates.
 
-Le CV généré est rendu en Arial.
+Le CV généré est rendu en Calibri (12,5 pt pour le titre, 11 pt pour les
+headings, 10 pt pour le corps et les bullets). La preview utilise
+`Calibri, Aptos, Arial, sans-serif`.
 
 ### Lettre de motivation
 

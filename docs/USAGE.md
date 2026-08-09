@@ -89,6 +89,7 @@ templates/base_cv.docx
 Placeholders principaux :
 
 ```text
+[[CV_HEADLINE]]
 [[EXP_1_COMPANY]]
 [[EXP_1_POSITION_TITLE]]
 [[EXP_1_LOCATION]]
@@ -99,16 +100,22 @@ Placeholders principaux :
 [[EXP_2_LOCATION]]
 [[EXP_2_DATES]]
 [[EXP_2_BULLETS]]
-[[LEAD_1_ORG]]
-[[LEAD_1_ROLE]]
-[[LEAD_1_LOCATION]]
-[[LEAD_1_DATES]]
-[[LEAD_1_BULLETS]]
+[[EXP_3_COMPANY]]
+[[EXP_3_POSITION_TITLE]]
+[[EXP_3_LOCATION]]
+[[EXP_3_DATES]]
+[[EXP_3_BULLETS]]
 [[TECHNICAL_SKILLS]]
 [[CERTIFICATION_ENTRIES]]
 ```
 
-Le rendu force la police en Arial.
+Le rendu V3 force la police en Calibri et bloque l'export si le CV ne peut pas
+être compacté proprement sur une page A4. Les nouveaux CV ne contiennent ni
+Leadership ni Intérêts. Lance la migration idempotente du profil avec :
+
+```bash
+src/.venv/bin/python scripts/migrate_master_profile_v3.py data/reference/master_profile.xlsx
+```
 
 ## Template LM
 
