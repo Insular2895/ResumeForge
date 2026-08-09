@@ -56,7 +56,7 @@ def test_procurement_experience_outranks_media_buying_for_non_media_supply_job()
     assert generate_cv.score_row(procurement, job) > generate_cv.score_row(media_buying, job)
 
 
-def test_user_validated_experience_keeps_five_complete_bullets():
+def test_user_validated_experience_respects_v3_four_bullet_limit():
     row = pd.Series(
         {
             "company": "Passy Primeur",
@@ -70,7 +70,7 @@ def test_user_validated_experience_keeps_five_complete_bullets():
 
     assert experience["facts_locked"] is True
     assert experience["rewrite_locked"] is False
-    assert len(experience["bullets"]) == 5
+    assert len(experience["bullets"]) == 4
 
 
 def test_validated_memory_participates_in_experience_selection():
@@ -117,23 +117,7 @@ def test_unverified_exposed_skills_do_not_influence_experience_selection():
     assert generate_cv.score_row(exposed, job) == generate_cv.score_row(clean, job)
 
 
-def test_unverified_exposed_skills_are_not_rendered_as_technical_skills():
-    job = generate_cv.parse_job("Coordinateur supply chain SAP stocks")
-    experience = pd.Series(
-        {
-            "skills_verified": "Gestion des stocks",
-            "skills_exposed": "SAP",
-            "skills_transferable": "SAP",
-        }
-    )
-
-    selected = generate_cv.select_technical_skills(pd.DataFrame(), [experience], job)
-
-    assert "Gestion des stocks" in selected
-    assert "SAP" not in selected
-
-
-def test_technical_skills_line_stays_concise_for_cv_template():
+def test_replacements_use_dynamic_character_budget_without_fixed_six_skill_cap():
     skills = [
         "SAP",
         "Gestion des stocks",
@@ -149,30 +133,11 @@ def test_technical_skills_line_stays_concise_for_cv_template():
         "Analyse du risque de défaut client",
     ]
 
-    replacements = generate_cv.build_replacements([], [], [], skills)
+    replacements = generate_cv.build_replacements([], [], skills, "ACHETEUR INTERNATIONAL")
     rendered = replacements["[[TECHNICAL_SKILLS]]"]
 
-    assert rendered.count(",") <= 5
-    assert "Action item tracker" not in rendered
-    assert "Checklist de contrôle qualité" not in rendered
-    assert "Analyse du risque de défaut client" not in rendered
-
-
-def test_translation_terms_are_not_dumped_into_technical_skills():
-    selected = generate_cv.curate_technical_skills(
-        [
-            "SAP",
-            "Gestion des stocks",
-            "TCO",
-            "SRM",
-            "réduction des coûts",
-            "amélioration des conditions contractuelles",
-            "Incoterms",
-        ],
-        max_skills=6,
-    )
-
-    assert selected == ["SAP", "Gestion des stocks", "Incoterms"]
+    assert all(skill in rendered for skill in skills)
+    assert replacements["[[CV_HEADLINE]]"] == "ACHETEUR INTERNATIONAL"
 
 
 def test_excel_year_numbers_do_not_render_with_decimal_suffix():

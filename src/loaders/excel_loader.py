@@ -7,18 +7,14 @@ class ExcelProfileLoader:
     Charge le fichier master_profile.xlsx et retourne un dictionnaire :
     {
         "experiences": DataFrame,
-        "leadership": DataFrame,
         "certifications": DataFrame,
-        "skills": DataFrame,
         ...
     }
     """
 
     REQUIRED_SHEETS = {
         "experiences",
-        "leadership",
         "certifications",
-        "skills",
         "job_families",
         "settings",
     }
@@ -26,6 +22,11 @@ class ExcelProfileLoader:
     OPTIONAL_SHEETS = {
         "applications_tracker",
         "allowed_rewrite_blocks",
+        "leadership_legacy",
+        "skills",
+        "skills_legacy",
+        "skills_by_target",
+        "skills_by_target_legacy",
     }
 
     def __init__(self, workbook_path):

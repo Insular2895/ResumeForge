@@ -37,12 +37,6 @@ EVIDENCE_COLUMNS = {
         "kpis_verified",
         *(f"truth_bullet_{index}" for index in range(1, 11)),
     },
-    "leadership": {
-        "organisation",
-        "organization",
-        "role",
-        *(f"truth_bullet_{index}" for index in range(1, 11)),
-    },
 }
 
 

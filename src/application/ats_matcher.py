@@ -1052,12 +1052,14 @@ def _is_transferable_keyword(keyword: str) -> bool:
 def build_resume_ats_text(
     *,
     experiences: list[dict],
-    leadership: list[dict],
     certifications: list[str],
     technical_skills: list[str],
+    cv_headline: str = "",
+    leadership: list[dict] | None = None,
 ) -> str:
     parts: list[str] = []
     parts.extend(["Contact", "Expériences", "Éducation", "Compétences"])
+    parts.append(cv_headline)
     parts.append(BASE_EDUCATION_ATS_TEXT)
 
     for experience in experiences:
@@ -1068,7 +1070,9 @@ def build_resume_ats_text(
                 " ".join(experience.get("bullets", [])),
             ]
         )
-    for item in leadership:
+    # Lecture rétrocompatible des anciens reports/CV seulement. Les nouveaux
+    # appels ne fournissent plus de bloc leadership.
+    for item in leadership or []:
         parts.extend([item.get("org", ""), item.get("role", ""), " ".join(item.get("bullets", []))])
     parts.extend(certifications)
     parts.extend(technical_skills)

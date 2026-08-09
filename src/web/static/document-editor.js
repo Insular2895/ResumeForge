@@ -8021,8 +8021,9 @@ var e = Object.create, t = Object.defineProperty, n = Object.getOwnPropertyDescr
 	t.exports = _();
 })), y = /* @__PURE__ */ c(u(), 1), b = g(), x = v(), ee = [
 	"Compétences techniques :",
-	"Intérêts :",
-	"Langues :"
+	"Technical skills:",
+	"Langues :",
+	"Languages:"
 ];
 function S(e) {
 	return e.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#039;");

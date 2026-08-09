@@ -15,6 +15,10 @@ from src.application.ats_matcher import (
     build_job_reference_context,
     build_resume_ats_text,
 )
+from src.application.candidate_evidence import build_candidate_evidence_index
+from src.application.dynamic_skills import derive_dynamic_skills
+from src.application.french_nominalizer import nominalize_french_experiences
+from src.application.job_skill_extractor import extract_job_skill_requirements
 from src.letter.french_proofreader import (
     apply_known_french_corrections,
     check_french_text,
@@ -23,6 +27,7 @@ from src.letter.french_proofreader import (
 from src.web.prompt_overrides import is_override_active
 from src.application.career_translation import resolve_target_domain
 from src.application.experience_memory import attach_memory_to_experiences
+from src.render.cv_layout_guard import render_cv_one_page
 
 
 # ============================================================
@@ -121,7 +126,7 @@ def clean_filename_part(value, fallback, max_length=40):
     return text[:max_length].strip("_")
 
 
-def clean_detected_job_title(value):
+def clean_detected_job_title(value, company="", location=""):
     title = safe_str(value)
     if not title:
         return "Poste cible"
@@ -130,11 +135,34 @@ def clean_detected_job_title(value):
     title = re.sub(r"(?i)\s*[-–—]?\s*job\s*post\s*$", "", title).strip()
     title = re.sub(r"(?i)\bcharg[ée]\(e\)", "Chargé", title)
     title = re.sub(r"(?i)\bassistant\(e\)", "Assistant", title)
-    title = re.sub(r"(?i)\s*[-–—]?\s*\(?\s*[hf]\s*/\s*[hf]\s*\)?\s*$", "", title).strip()
+    title = re.sub(r"(?i)\s*\(?\s*(?:h\s*/\s*f|f\s*/\s*h)(?:\s*/\s*[xm])?\s*\)?", "", title).strip()
+    title = re.sub(r"(?i)\s*[-–—|,/]?\s*(?:CDI|CDD|INT[ÉE]RIM|STAGE|ALTERNANCE)\b.*$", "", title).strip()
+    title = re.sub(r"(?i)\s*[-–—|]?\s*(?:r[ée]f(?:[ée]rence)?\.?\s*[:#-]?\s*[A-Z0-9._/-]+)\s*$", "", title).strip()
+    for suffix in (company, location):
+        suffix = safe_str(suffix)
+        if suffix:
+            title = re.sub(rf"(?i)\s*[-–—|]\s*{re.escape(suffix)}\s*$", "", title).strip()
+    title = re.sub(
+        r"(?i)\s*[-–—|]\s*(?:Paris(?:\s+\d{1,2})?|Lyon|Marseille|Bordeaux|Lille|Nantes|Toulouse|Remote|France)\s*$",
+        "",
+        title,
+    ).strip()
     title = re.sub(r"\s*/\s*", " / ", title)
     title = re.sub(r"\s*[-–—]\s*", " - ", title)
     title = re.sub(r"\s+", " ", title).strip(" -")
     return title or "Poste cible"
+
+
+def build_cv_headline(parsed_job, document_language="fr"):
+    """Construit le titre visible uniquement depuis l'intitulé de l'annonce."""
+
+    del document_language
+    title = clean_detected_job_title(
+        parsed_job.get("job_title", ""),
+        company=parsed_job.get("company", ""),
+        location=parsed_job.get("location", ""),
+    )
+    return title.upper()
 
 
 def format_year_or_date(value):
@@ -217,11 +245,7 @@ def load_master_profile():
     workbook = {
         "experiences": pd.DataFrame(attach_memory_to_experiences(MASTER_PROFILE_PATH)),
         "experience_memory": get_sheet_case_insensitive(excel, "experience_memory"),
-        "leadership": get_sheet_case_insensitive(excel, "leadership"),
         "certifications": get_sheet_case_insensitive(excel, "certifications"),
-        "skills": get_sheet_case_insensitive(excel, "skills"),
-        "skills_by_target": get_sheet_case_insensitive(excel, "skills_by_target"),
-        "claim_rules": get_sheet_case_insensitive(excel, "claim_rules"),
         "job_families": get_sheet_case_insensitive(excel, "job_families"),
         "settings": get_sheet_case_insensitive(excel, "settings"),
     }
@@ -343,6 +367,11 @@ def extract_staffing_client_company(job_text):
 
 def extract_company_from_job_board_header(lines):
     for line in lines[:8]:
+        labeled = re.search(r"(?i)^(?:company|entreprise|société|employeur|organization)\s*[:\-]\s*(.+)$", line)
+        if labeled:
+            candidate = clean_detected_company(labeled.group(1))
+            if looks_like_header_company(candidate):
+                return candidate
         wanted = re.search(r"(?i)^wanted\s+for\s+(.+)$", line)
         if wanted:
             candidate = clean_detected_company(wanted.group(1))
@@ -602,130 +631,71 @@ def score_row(row, parsed_job):
     if not searchable:
         return 0
 
-    score = 0
+    title_text = normalize_text(
+        get_value(row, ["position_title", "job_title", "position", "role", "title"], "")
+    )
+    tags_text = normalize_text(
+        " ".join(
+            get_value(row, [column], "")
+            for column in ("industry_tags", "job_family_tags", "skills_verified")
+        )
+    )
+    tools_text = normalize_text(get_value(row, ["tools_verified"], ""))
+    memory_text = normalize_text(get_value(row, ["validated_memory"], ""))
+    bullet_text = normalize_text(
+        " ".join(
+            get_value(row, [f"truth_bullet_{index}", f"bullet_{index}"], "")
+            for index in range(1, 11)
+        )
+    )
 
-    for keyword in keywords:
-        if keyword in searchable:
-            score += 3
-
-    boosts = {
-        "adv": 20,
-        "import": 18,
-        "export": 18,
-        "international": 14,
-        "supply": 16,
-        "chain": 12,
-        "logistics": 16,
-        "warehouse": 14,
-        "transport": 12,
-        "procurement": 12,
-        "purchasing": 10,
-        "achats": 10,
-        "operations": 14,
-        "sap": 16,
-        "ewm": 12,
-        "stock": 12,
-        "inventory": 12,
-        "incoterms": 14,
-        "forecast": 8,
-        "data": 8,
-        "analytics": 8,
-        "finance": 7,
-        "risk": 7,
-        "media": 6,
-        "marketing": 6,
+    score = 0.0
+    useful_keywords = {
+        normalize_text(keyword)
+        for keyword in keywords
+        if len(normalize_text(keyword)) >= 3
     }
-
-    for word, weight in boosts.items():
-        if word in job_text and word in searchable:
-            score += weight
-
-    high_signal_domain_terms = {
-        "fruits": 30,
-        "legumes": 30,
-        "rungis": 35,
-        "agroalimentaire": 25,
-    }
-    for term, weight in high_signal_domain_terms.items():
-        if term in job_text and term in searchable:
-            score += weight
-
-    company = normalize_text(get_value(row, ["company", "organisation", "organization"], ""))
-    flags = _context_flags(job_text)
-
-    if company == "blurry":
-        if any(w in job_text for w in ["adv", "order", "commande", "customer service", "service client", "client service"]):
-            score += 45
-        if any(w in job_text for w in ["adv", "import", "export", "logistics", "supply", "operations", "international"]):
-            score += 55
-        if flags["retail"]:
-            score += 45
-        if flags["marketing"]:
-            score += 62
-            if any(w in job_text for w in ["publicite", "ads", "advertising", "media", "achat media", "campagne"]):
-                score += 35
-        if flags["tech"]:
-            score += 70
-        if flags["commercial"]:
-            score += 18
-        if flags["project"]:
-            score += 28
-
-    if company == "adventis":
-        if flags["finance"]:
-            score += 55
-            if any(w in job_text for w in ["banque", "banking", "credit", "solvabilite", "portefeuille clients", "clientele professionnels"]):
-                score += 45
-        if flags["marketing"]:
-            score += 58
-            if any(w in job_text for w in ["publicite", "ads", "advertising", "media", "achat media", "campagne"]):
-                score += 45
-        if flags["commercial"]:
-            score += 35
-        if flags["project"]:
-            score += 28
-        if flags["retail"]:
-            score -= 25
-
-    if company == "orion trading":
-        if flags["finance"]:
-            score += 30
-        if flags["supply"]:
+    useful_keywords.update(
+        token
+        for token in normalize_text(parsed_job.get("job_title", "")).split()
+        if len(token) >= 3
+    )
+    for keyword in useful_keywords:
+        if keyword in title_text:
+            score += 14
+        if keyword in tools_text:
             score += 10
-        if flags["marketing"]:
-            score += 55
-        if "publicite" in job_text or "media" in job_text or "achat media" in job_text:
-            score += 55
-        if flags["retail"]:
-            score += 65
+        if keyword in tags_text:
+            score += 8
+        if keyword in memory_text:
+            score += 7
+        if keyword in bullet_text:
+            score += 5
 
-    if company == "weplugworld":
-        if flags["marketing"]:
-            score += 18
-        if flags["tech"]:
-            score += 65
-        if flags["commercial"]:
-            score += 12
-        if flags["retail"]:
-            score -= 12
-        if flags["finance"] and any(w in job_text for w in ["banque", "banking", "credit", "solvabilite", "clientele professionnels"]):
-            score -= 35
+    normalized_job_title = normalize_text(parsed_job.get("job_title", ""))
+    if normalized_job_title and normalized_job_title in title_text:
+        score += 28
 
-    if company == "minero":
-        if flags["retail"]:
-            score += 55
-        if flags["commercial"]:
-            score += 18
-        if flags["supply"]:
-            score += 2
-        if any(w in job_text for w in ["procurement", "purchasing", "achats", "sourcing"]):
-            score += 25
-        if any(w in job_text for w in ["adv", "customer service", "service client"]):
-            score -= 35
+    # Les concepts extraits de la JD apportent un signal sémantique prudent,
+    # mais seulement lorsqu'un terme de preuve existe réellement dans la ligne.
+    for requirement in extract_job_skill_requirements(
+        parsed_job.get("job_title", ""),
+        parsed_job.get("raw_text", "") or job_text,
+    ):
+        if any(normalize_text(term) in searchable for term in requirement.get("evidence_terms", [])):
+            score += 9
+
+    priority = safe_str(get_value(row, ["cv_priority"], ""))
+    try:
+        score += min(10, max(0, float(priority)))
+    except ValueError:
+        pass
+    if normalize_text(get_value(row, ["evidence_strength"], "")) in {"high", "user_validated"}:
+        score += 4
 
     year = get_row_year(row)
     if year:
-        score += max(0, year - 2020)
+        score += max(0, min(6, year - 2020))
 
     return score
 
@@ -927,11 +897,14 @@ def select_certifications(df, parsed_job, max_certs=2):
 
         if supply_context:
             if explicit_sap_context:
+                if "sap easy access" in combined:
+                    base += 160
+
                 if "sap supply" in combined or ("sap" in combined and "supply" in combined):
                     base += 140
 
                 if "rise" in combined and "sap" in combined:
-                    base += 130
+                    base += 95
 
                 if "s/4hana" in combined or "s4hana" in combined or "4hana" in combined:
                     base += 120
@@ -996,6 +969,8 @@ def select_certifications(df, parsed_job, max_certs=2):
     seen = set()
 
     for _, row in df.iterrows():
+        if float(row.get("_score", 0) or 0) <= 0:
+            continue
         cert_name = get_value(
             row,
             [
@@ -1046,1000 +1021,45 @@ def select_certifications(df, parsed_job, max_certs=2):
 
 
 # ============================================================
-# TECHNICAL SKILLS
-# ============================================================
-
-SKILL_TRANSLATIONS = {
-    "performance analysis": "Analyse de performance",
-    "press release writing": "Rédaction de communiqués de presse",
-    "project management": "Gestion de projet",
-    "stakeholder management": "Gestion des parties prenantes",
-    "operations management": "Gestion des opérations",
-    "operational coordination": "Coordination opérationnelle",
-    "reporting": "Reporting",
-    "kpi monitoring": "Suivi des KPI",
-    "export operations": "Gestion export",
-    "import operations": "Gestion import",
-    "procurement": "Achats / Procurement",
-    "purchasing": "Achats",
-    "inventory management": "Gestion des stocks",
-    "stock management": "Gestion des stocks",
-    "stock rotation management": "Gestion de la rotation des stocks",
-    "supply chain coordination": "Coordination supply chain",
-    "warehouse management": "Gestion d’entrepôt",
-    "warehousing operations": "Opérations d’entrepôt",
-    "transport coordination": "Coordination transport",
-    "logistics coordination": "Coordination logistique",
-    "cross-border operations": "Opérations cross-border",
-    "process optimization": "Optimisation des processus",
-    "business intelligence": "Business Intelligence",
-    "dashboarding": "Dashboarding",
-    "data analysis": "Analyse de données",
-    "forecasting": "Prévision de la demande",
-    "risk management": "Gestion des risques",
-    "financial modeling": "Modélisation financière",
-    "crm marketing": "CRM marketing",
-    "email marketing": "Email marketing",
-    "paid media": "Paid media",
-    "media buying": "Achat média",
-    "seo": "SEO",
-    "sea": "SEA",
-    "sql": "SQL",
-    "python": "Python",
-    "looker": "Looker",
-    "power bi": "Power BI",
-    "sap": "SAP",
-    "sap ewm": "SAP EWM",
-    "sap s/4hana": "SAP S/4HANA",
-}
-
-
-def translate_skill(skill):
-    raw = safe_str(skill)
-    key = normalize_text(raw)
-
-    if key in SKILL_TRANSLATIONS:
-        return SKILL_TRANSLATIONS[key]
-
-    return raw
-
-
-def _contains_any(text, terms):
-    return any(term in text for term in terms)
-
-
-def _skill_key(skill):
-    return normalize_text(skill).replace(" d ", " ").replace(" l ", " ")
-
-
-def _split_skill_list(raw):
-    return [part.strip() for part in re.split(r"\s*\|\s*|\n|;", safe_str(raw)) if part.strip()]
-
-
-def _row_text(row, columns):
-    return " ".join(get_value(row, [column], "") for column in columns)
-
-
-def _target_profile_extra_score(target_name, job_text):
-    target = normalize_text(target_name)
-    score = 0
-
-    if "banque" in target or "banking" in target:
-        if _contains_any(job_text, [
-            "banque", "banking", "charge de clientele", "conseiller clientele",
-            "clientele professionnels", "professionnels", "portefeuille clients",
-            "solvabilite", "credit", "risque", "conformite", "banque-assurances",
-        ]):
-            score += 80
-
-    if "finance / risk" in target or "finance operations" in target:
-        if _contains_any(job_text, [
-            "finance", "financial", "risk", "risque", "credit", "solvabilite",
-            "financement", "portfolio", "portefeuille", "due diligence",
-            "cash-flow", "marge", "rentabilite",
-        ]):
-            score += 55
-
-    if "commercial" in target or "business development" in target:
-        if _contains_any(job_text, [
-            "commercial", "vente", "prospection", "business development",
-            "pipeline", "crm", "negociation", "fidelisation", "client",
-            "relation client", "account management",
-        ]):
-            score += 45
-
-    if "retail" in target or "vente conseil" in target:
-        if _contains_any(job_text, [
-            "retail", "magasin", "vendeur", "conseiller de vente", "vente conseil",
-            "rayon", "encaissement", "client magasin", "decathlon", "sport",
-        ]):
-            score += 85
-
-    if "supply" in target or "adv" in target or "import-export" in target:
-        if _contains_any(job_text, [
-            "adv", "import", "export", "supply", "logistique", "stock",
-            "transport", "incoterms", "sap", "commande", "livraison",
-        ]):
-            score += 65
-
-    if "publicite" in target or "achat media" in target or "advertising" in target:
-        if _contains_any(job_text, [
-            "publicite", "media", "advertising", "paid", "campaign", "campagne",
-            "ooh", "achat media", "marketing", "roas", "cpm", "cpc", "cac",
-        ]):
-            score += 70
-
-    if "tech" in target or "product ops" in target or "digital project" in target:
-        if _contains_any(job_text, [
-            "google", "tech", "product", "produit", "metrics", "uat",
-            "requirements", "automation", "documentation", "webflow", "figma",
-            "sql", "python", "data", "analytics", "app", "application",
-            "automatisation", "no-code", "nocode",
-        ]):
-            score += 65
-
-    if "projet" in target or "pmo" in target or "project" in target:
-        if _contains_any(job_text, [
-            "chef de projet", "project", "pmo", "coordination", "roadmap",
-            "planning", "jalons", "livrables", "stakeholder", "recette",
-        ]):
-            score += 45
-
-    return score
-
-
-def select_target_profiles(skills_by_target_df, parsed_job, max_profiles=2):
-    if skills_by_target_df is None or getattr(skills_by_target_df, "empty", True):
-        return []
-
-    job_text = parsed_job["normalized_text"]
-    scored = []
-
-    for _, row in skills_by_target_df.iterrows():
-        target_name = get_value(row, ["target_profile"], "")
-        if not target_name:
-            continue
-
-        searchable = normalize_text(
-            _row_text(
-                row,
-                [
-                    "target_profile",
-                    "CV_positioning",
-                    "top_skills_8_to_10",
-                    "secondary_skills",
-                    "best_experience_angle",
-                    "keywords_ATS",
-                ],
-            )
-        )
-        score = _target_profile_extra_score(target_name, job_text)
-
-        for keyword in parsed_job["keywords"]:
-            if keyword and keyword in searchable:
-                score += 4
-
-        for term in _split_skill_list(get_value(row, ["keywords_ATS"], "")):
-            term_norm = normalize_text(term)
-            if term_norm and term_norm in job_text:
-                score += 12
-
-        if score > 0:
-            scored.append((score, row))
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [row for score, row in scored[:max_profiles] if score >= 20]
-
-
-def target_profile_skills(skills_by_target_df, parsed_job, max_skills=10):
-    selected = []
-    for row in select_target_profiles(skills_by_target_df, parsed_job, max_profiles=2):
-        for column in ["top_skills_8_to_10", "secondary_skills"]:
-            for skill in _split_skill_list(get_value(row, [column], "")):
-                if skill not in selected:
-                    selected.append(skill)
-                if len(selected) >= max_skills:
-                    return selected
-    return selected
-
-
-def _context_flags(job_text):
-    return {
-        "supply": _contains_any(job_text, [
-            "adv", "import", "export", "supply", "chain", "warehouse", "transport",
-            "procurement", "stock", "inventory", "logistics", "delivery", "trade",
-            "sap", "slas", "order", "customer service", "supply chain",
-        ]),
-        "data": _contains_any(job_text, [
-            "data", "analyst", "analytics", "dashboard", "reporting", "kpi",
-            "sql", "python", "power bi", "forecast", "forecasting", "bi",
-        ]),
-        "marketing": _contains_any(job_text, [
-            "marketing", "media", "ads", "crm", "campaign", "acquisition",
-            "seo", "sea", "paid", "roas", "cpm", "cpc", "cac", "publicite",
-        ]),
-        "web": _contains_any(job_text, [
-            "webflow", "figma", "website", "site web", " ux ", " ui ", "frontend",
-            "backend", "developer", "developpeur",
-        ]),
-        "tech": _contains_any(job_text, [
-            "google", "tech", "product", "produit", "app", "application",
-            "software", "logiciel", "automation", "automatisation", "no-code",
-            "nocode", "api", "requirements", "metrics", "uat", "frontend",
-            "backend", "developer", "developpeur", "data", "analytics",
-        ]),
-        "finance": _contains_any(job_text, [
-            "finance", "financial", "risk", "risque", "credit", "solvabilite",
-            "financement", "portfolio", "portefeuille", "banque", "banking",
-            "due diligence", "cash-flow", "marge", "rentabilite",
-        ]),
-        "commercial": _contains_any(job_text, [
-            "commercial", "vente", "prospection", "pipeline", "crm",
-            "negociation", "fidelisation", "client", "relation client",
-            "account management", "business development",
-        ]),
-        "retail": _contains_any(job_text, [
-            "retail", "magasin", "vendeur", "conseiller de vente", "rayon",
-            "encaissement", "decathlon", "sport", "vente conseil",
-        ]),
-        "project": _contains_any(job_text, [
-            "chef de projet", "project", "pmo", "coordination", "roadmap",
-            "planning", "jalons", "livrables", "stakeholder", "recette",
-        ]),
-    }
-
-
-def _is_office_context(job_text):
-    return _contains_any(job_text, [
-        "microsoft office",
-        "pack office",
-        "google workspace",
-        "word",
-        "powerpoint",
-        "excel",
-        "outils bureautiques",
-        "bureautique",
-    ])
-
-
-def erp_skills_for_job(job_text):
-    skills = []
-    if _contains_any(job_text, ["erp", "sap", "m3", "navision", "sage", "oracle"]):
-        skills.append("ERP")
-    if _contains_any(job_text, ["sap", "s/4hana", "s4hana"]):
-        skills.append("SAP")
-    if _contains_any(job_text, ["m3"]):
-        skills.append("M3")
-    if _contains_any(job_text, ["sage", "logiciel sage"]):
-        skills.append("Logiciel Sage")
-    if _contains_any(job_text, ["navision", "dynamics"]):
-        skills.append("Navision")
-    if _contains_any(job_text, ["oracle erp", "oracle"]):
-        skills.append("Oracle ERP")
-    return skills
-
-
-def is_skill_allowed_for_job(skill, job_text):
-    skill_norm = normalize_text(skill)
-    flags = _context_flags(job_text)
-    office_context = _is_office_context(job_text)
-
-    web_marketing_terms = [
-        "meta_ads",
-        "meta ads",
-        "google ads",
-        "paid media",
-        "media buying",
-        "seo",
-        "sea",
-        "mailchimp",
-        "email marketing",
-        "crm marketing",
-        "figma",
-        "webflow",
-        "website",
-        "website_management",
-        "ux",
-        "ui",
-        "acquisition",
-        "copywriting",
-        "community management",
-        "social media",
-    ]
-
-    if flags["supply"] and not flags["marketing"] and not flags["web"]:
-        if any(blocked in skill_norm for blocked in web_marketing_terms):
-            return False
-
-    if office_context and flags["commercial"] and not flags["web"]:
-        if any(blocked in skill_norm for blocked in [
-            "webflow", "figma", "client-first", "client first", "landing page",
-            "seo", "sea", "ux", "ui", "frontend", "backend",
-            "requirements", "recueil des besoins", "acceptance", "criteres d acceptation",
-            "uat", "roadmap", "jalons", "documentation technique", "passation",
-            "optimisation site web", "automatisation",
-        ]):
-            return False
-
-    if flags["finance"] and not flags["marketing"] and not flags["web"]:
-        if any(blocked in skill_norm for blocked in web_marketing_terms):
-            return False
-        if any(blocked in skill_norm for blocked in [
-            "webflow", "figma", "seo", "sea", "mailchimp", "landing page",
-            "paid media", "achat media", "media buying", "meta", "google ads",
-            "sap ewm", "s/4hana", "supply chain", "gestion import",
-            "gestion export", "incoterms", "transport", "stock",
-        ]):
-            return False
-
-    if flags["retail"] and not flags["finance"]:
-        if any(blocked in skill_norm for blocked in [
-            "modelisation financiere", "due diligence", "structuration de financements",
-            "sap ewm", "s/4hana", "python", "sql", "webflow",
-        ]):
-            return False
-
-    data_tools = [
-        "sql",
-        "python",
-        "looker",
-        "power bi",
-        "dashboard",
-        "business intelligence",
-    ]
-
-    if any(tool in skill_norm for tool in data_tools) and not flags["data"]:
-        return False
-
-    return True
-
-
-def select_technical_skills(
-    skills_df,
-    selected_experiences,
-    parsed_job,
-    max_skills=12,
-    skills_by_target_df=None,
-    claim_rules_df=None,
-):
-    job_text = parsed_job["normalized_text"]
-
-    candidates = []
-    target_skills = target_profile_skills(skills_by_target_df, parsed_job, max_skills=12)
-
-    flags = _context_flags(job_text)
-    supply_context = flags["supply"]
-    data_context = flags["data"]
-    marketing_context = flags["marketing"]
-    web_context = flags["web"]
-    finance_context = flags["finance"]
-    commercial_context = flags["commercial"]
-    retail_context = flags["retail"]
-    project_context = flags["project"]
-    office_context = _is_office_context(job_text)
-
-    # 1. Skills depuis la feuille skills
-    if not skills_df.empty:
-        for _, row in skills_df.iterrows():
-            skill_name = get_value(
-                row,
-                [
-                    "skill_name",
-                    "name",
-                    "skill",
-                    "competence",
-                    "compétence",
-                ],
-                "",
-            )
-
-            if not skill_name:
-                continue
-
-            searchable = row_search_text(row)
-            skill_norm = normalize_text(skill_name)
-
-            score = 0
-
-            for keyword in parsed_job["keywords"]:
-                if keyword in searchable:
-                    score += 3
-
-            if skill_norm and skill_norm in job_text:
-                score += 20
-
-            if supply_context:
-                supply_boosts = {
-                    "sap": 45,
-                    "sap ewm": 40,
-                    "s/4hana": 38,
-                    "s4hana": 38,
-                    "4hana": 38,
-                    "adv": 35,
-                    "import": 34,
-                    "export": 34,
-                    "incoterms": 34,
-                    "fca": 28,
-                    "cpt": 28,
-                    "dap": 28,
-                    "logistics": 30,
-                    "logistique": 30,
-                    "warehouse": 28,
-                    "entrepot": 28,
-                    "transport": 26,
-                    "delivery": 26,
-                    "livraison": 26,
-                    "supply": 32,
-                    "procurement": 26,
-                    "achats": 24,
-                    "stock": 26,
-                    "inventory": 26,
-                    "order": 22,
-                    "operations": 22,
-                    "slas": 20,
-                }
-
-                for word, weight in supply_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if data_context:
-                data_boosts = {
-                    "sql": 35,
-                    "python": 35,
-                    "looker": 30,
-                    "power bi": 30,
-                    "dashboard": 30,
-                    "reporting": 28,
-                    "kpi": 28,
-                    "forecast": 28,
-                    "analytics": 25,
-                    "analyse de donnees": 25,
-                    "data": 25,
-                }
-
-                for word, weight in data_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if marketing_context:
-                marketing_boosts = {
-                    "meta ads": 35,
-                    "google ads": 35,
-                    "paid media": 32,
-                    "media buying": 32,
-                    "seo": 30,
-                    "sea": 30,
-                    "crm": 28,
-                    "mailchimp": 25,
-                    "email marketing": 25,
-                    "acquisition": 25,
-                    "campaign": 22,
-                }
-
-                for word, weight in marketing_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if finance_context:
-                finance_boosts = {
-                    "analyse financiere": 60,
-                    "financial analysis": 60,
-                    "solvabilite": 58,
-                    "credit risk": 56,
-                    "analyse du risque": 55,
-                    "risk": 40,
-                    "due diligence": 52,
-                    "portefeuille client": 50,
-                    "portfolio": 44,
-                    "structuration de financements": 54,
-                    "financing": 42,
-                    "modelisation financiere": 50,
-                    "scenario": 38,
-                    "reporting": 34,
-                    "tableaux de bord": 34,
-                    "crm": 32,
-                    "negociation commerciale": 36,
-                    "payment terms": 34,
-                    "garanties": 32,
-                }
-
-                for word, weight in finance_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if commercial_context:
-                commercial_boosts = {
-                    "crm": 44,
-                    "vente conseil": 48,
-                    "analyse des besoins": 46,
-                    "discovery call": 42,
-                    "sop": 38,
-                    "appel": 32,
-                    "cap soncas": 42,
-                    "objections": 38,
-                    "fidelisation": 40,
-                    "negociation commerciale": 44,
-                    "pipeline": 38,
-                    "account management": 36,
-                    "prospection": 36,
-                    "relance": 34,
-                }
-
-                for word, weight in commercial_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if retail_context:
-                retail_boosts = {
-                    "vente conseil": 60,
-                    "decouverte produit": 54,
-                    "cap soncas": 45,
-                    "objections": 42,
-                    "fidelisation": 42,
-                    "parcours client": 40,
-                    "encaissement": 36,
-                    "crm": 30,
-                }
-
-                for word, weight in retail_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if project_context:
-                project_boosts = {
-                    "roadmap": 48,
-                    "jalons": 46,
-                    "action item": 42,
-                    "raci": 38,
-                    "stakeholder": 44,
-                    "recueil des besoins": 44,
-                    "acceptance": 38,
-                    "uat": 40,
-                    "passation": 38,
-                    "documentation": 34,
-                    "risk register": 36,
-                    "sop": 32,
-                }
-
-                for word, weight in project_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if web_context:
-                web_boosts = {
-                    "webflow": 35,
-                    "figma": 32,
-                    "ux": 28,
-                    "ui": 28,
-                    "frontend": 25,
-                    "backend": 25,
-                    "website": 25,
-                    "site web": 25,
-                }
-
-                for word, weight in web_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        score += weight
-
-            if score > 0:
-                candidates.append((translate_skill(skill_name), score))
-
-            if office_context:
-                office_boosts = {
-                    "excel": 95,
-                    "microsoft excel": 95,
-                    "spreadsheet": 82,
-                    "sheets": 78,
-                    "reporting": 70,
-                    "tableaux de bord": 65,
-                }
-                for word, weight in office_boosts.items():
-                    if word in searchable or word in skill_norm:
-                        candidates.append((translate_skill(skill_name), score + weight))
-
-    # 2. Skills depuis les expériences sélectionnées
-    for row in selected_experiences:
-        for col in [
-            "tools_verified",
-            "tools",
-            "skills_verified",
-            "skills",
-            "skill_tags",
-            "technical_skills",
-        ]:
-            raw = get_value(row, [col], "")
-
-            for skill in split_multi_value(raw):
-                skill_norm = normalize_text(skill)
-
-                if not skill_norm:
-                    continue
-
-                score = 3
-
-                if skill_norm in job_text:
-                    score += 15
-
-                if supply_context:
-                    if any(
-                        w in skill_norm
-                        for w in [
-                            "sap",
-                            "ewm",
-                            "s/4hana",
-                            "s4hana",
-                            "adv",
-                            "import",
-                            "export",
-                            "incoterms",
-                            "fca",
-                            "cpt",
-                            "dap",
-                            "logistics",
-                            "logistique",
-                            "transport",
-                            "warehouse",
-                            "stock",
-                            "inventory",
-                            "supply",
-                            "procurement",
-                            "delivery",
-                            "operations",
-                        ]
-                    ):
-                        score += 30
-
-                if data_context:
-                    if any(
-                        w in skill_norm
-                        for w in [
-                            "sql",
-                            "python",
-                            "looker",
-                            "power bi",
-                            "dashboard",
-                            "reporting",
-                            "kpi",
-                            "data",
-                            "analytics",
-                            "forecast",
-                        ]
-                    ):
-                        score += 28
-
-                if marketing_context:
-                    if any(
-                        w in skill_norm
-                        for w in [
-                            "meta ads",
-                            "google ads",
-                            "paid media",
-                            "media buying",
-                            "seo",
-                            "sea",
-                            "crm",
-                            "mailchimp",
-                            "campaign",
-                        ]
-                    ):
-                        score += 28
-
-                if finance_context:
-                    if any(
-                        w in skill_norm
-                        for w in [
-                            "financial",
-                            "finance",
-                            "risk",
-                            "risque",
-                            "portfolio",
-                            "portefeuille",
-                            "solvabilite",
-                            "credit",
-                            "due diligence",
-                            "financing",
-                            "payment",
-                            "garanties",
-                            "covenant",
-                            "cash-flow",
-                            "margin",
-                            "marge",
-                            "negociation",
-                        ]
-                    ):
-                        score += 36
-
-                if commercial_context:
-                    if any(
-                        w in skill_norm
-                        for w in [
-                            "crm",
-                            "client",
-                            "sales",
-                            "commercial",
-                            "prospecting",
-                            "prospection",
-                            "negociation",
-                            "fidelisation",
-                            "account",
-                            "pipeline",
-                            "relationship",
-                        ]
-                    ):
-                        score += 28
-
-                candidates.append((translate_skill(skill), score))
-
-    # 3. Filtrage, traduction, déduplication
-    score_by_skill = {}
-
-    for skill, score in candidates:
-        skill = safe_str(skill)
-
-        if not skill:
-            continue
-
-        skill = translate_skill(skill)
-
-        if not is_skill_allowed_for_job(skill, job_text):
-            continue
-
-        key = normalize_text(skill)
-
-        if not key:
-            continue
-
-        if "_" in key and " " in key:
-            continue
-
-        if "meta_ads_manager" in key:
-            continue
-
-        if key not in score_by_skill or score > score_by_skill[key][1]:
-            score_by_skill[key] = (skill, score)
-
-    ranked = sorted(score_by_skill.values(), key=lambda x: x[1], reverse=True)
-    preferred_ats_skills = []
-
-    erp_preferred_skills = erp_skills_for_job(job_text)
-    if erp_preferred_skills:
-        for skill in erp_preferred_skills:
-            if is_skill_allowed_for_job(skill, job_text):
-                preferred_ats_skills.append(skill)
-
-    if office_context:
-        for skill in [
-            "Microsoft Office",
-            "Google Workspace",
-            "Word",
-            "PowerPoint",
-            "Excel",
-            "Documentation administrative",
-            "Gestion de données clients",
-            "Reporting",
-            "Service client",
-            "Support client",
-            "Relations clients",
-            "Étiquette téléphonique",
-        ]:
-            if is_skill_allowed_for_job(skill, job_text):
-                preferred_ats_skills.append(skill)
-
-    if _contains_any(job_text, ["publicite", "publicitaire", "campagne", "campagnes"]):
-        for skill in ["Campagnes publicitaires", "Coordination commerciale"]:
-            if is_skill_allowed_for_job(skill, job_text):
-                preferred_ats_skills.append(skill)
-
-    if supply_context:
-        for skill in [
-            "Gestion des commandes",
-            "Suivi des commandes",
-            "EDI",
-            "Référentiel articles clients",
-            "Gestion des litiges",
-            "Facturation",
-            "Suivi des livraisons",
-            "Gestion des stocks",
-        ]:
-            if is_skill_allowed_for_job(skill, job_text):
-                preferred_ats_skills.append(skill)
-
-    if commercial_context:
-        for skill in ["Service client", "Support client", "CRM", "Relance commerciale structurée"]:
-            if is_skill_allowed_for_job(skill, job_text):
-                preferred_ats_skills.append(skill)
-
-    if target_skills:
-        selected = []
-        available = {_skill_key(skill): skill for skill, _ in ranked}
-        for preferred in preferred_ats_skills:
-            key = _skill_key(preferred)
-            skill = available.get(key)
-            if skill and skill not in selected:
-                selected.append(skill)
-            if len(selected) >= max_skills:
-                return selected
-
-        for preferred in target_skills:
-            if not is_skill_allowed_for_job(preferred, job_text):
-                continue
-            key = _skill_key(preferred)
-            skill = available.get(key)
-            if skill and skill not in selected:
-                selected.append(skill)
-            if len(selected) >= max_skills:
-                return selected
-
-        for skill, _ in ranked:
-            if skill not in selected:
-                selected.append(skill)
-            if len(selected) >= max_skills:
-                return selected
-
-    if supply_context and not data_context:
-        preferred_supply_order = [
-            *erp_skills_for_job(job_text),
-            "Gestion ADV",
-            "Gestion export",
-            "Gestion import",
-            "Incoterms (FCA, CPT, DAP)",
-            "Coordination logistique",
-            "Coordination supply chain",
-            "Gestion des stocks",
-            "Suivi des livraisons",
-            "Gestion des opérations",
-            "Reporting opérationnel",
-        ]
-
-        selected = []
-        available = {normalize_text(skill): skill for skill, _ in ranked}
-
-        for preferred in preferred_supply_order:
-            key = normalize_text(preferred)
-            if key in available and available[key] not in selected:
-                selected.append(available[key])
-
-            if len(selected) >= max_skills:
-                break
-
-        return selected
-
-    selected = []
-
-    for preferred in preferred_ats_skills:
-        key = normalize_text(preferred)
-        available = {normalize_text(skill): skill for skill, _ in ranked}
-        if key in available and available[key] not in selected:
-            selected.append(available[key])
-        if len(selected) >= max_skills:
-            return selected
-
-    for skill, _ in ranked:
-        if skill not in selected:
-            selected.append(skill)
-
-        if len(selected) >= max_skills:
-            break
-
-    return selected
-
-
-ATS_SKILL_LABELS = {
-    "logiciel sage": "Sage",
-    "sage": "Sage",
-    "sap": "SAP",
-    "erp": "ERP",
-    "edi": "EDI",
-    "referentiel": "Référentiel articles clients",
-    "référentiel": "Référentiel articles clients",
-    "referentiel articles clients": "Référentiel articles clients",
-    "stocks": "Gestion des stocks",
-    "litiges": "Gestion des litiges",
-    "livraison": "Suivi des livraisons",
-    "livraisons": "Suivi des livraisons",
-    "gestion des commandes": "Gestion des commandes",
-    "suivi des commandes": "Suivi des commandes",
-    "anglais": "Anglais professionnel",
-    "facturation": "Facturation",
-    "microsoft office": "Microsoft Office",
-    "pack office": "Pack Office",
-    "word": "Word",
-    "powerpoint": "PowerPoint",
-    "excel": "Excel",
-    "service client": "Service client",
-    "support client": "Support client",
-    "relations clients": "Relations clients",
-    "donnees clients": "Gestion de données clients",
-    "documents administratifs": "Documentation administrative",
-}
-
-
-def boost_skills_with_ats_keywords(selected_skills, ats_analysis, job_text, max_skills=14):
-    boosted = list(selected_skills)
-    candidates = []
-    for key in ["injectable_keywords"]:
-        value = ats_analysis.get(key, [])
-        if isinstance(value, list):
-            candidates.extend(value)
-
-    for keyword in candidates:
-        keyword_norm = normalize_text(keyword)
-        label = ATS_SKILL_LABELS.get(keyword_norm)
-        if not label:
-            continue
-        if not label or not is_skill_allowed_for_job(label, job_text):
-            continue
-        if label not in boosted:
-            boosted.append(label)
-        if len(boosted) >= max_skills:
-            break
-
-    return boosted
-
-
-SKILL_SECTION_EXCLUDED_TERMS = {
-    "tco",
-    "srm",
-    "rfi rfq rfp",
-    "matrice de kraljic",
-    "single dual sourcing",
-    "reduction des couts",
-    "reduction du risque fournisseur",
-    "amelioration des conditions contractuelles",
-    "reduction des ruptures",
-    "reduction des couts de stockage",
-    "amelioration du taux de service",
-    "amelioration de la rentabilite",
-    "optimisation du cash flow",
-    "reduction de l exposition au risque",
-}
-
-SKILL_SECTION_NOISY_PATTERNS = [
-    "action item",
-    "checklist",
-    "procedure operatoire",
-    "structuration des conditions",
-    "risque de defaut",
-    "analyse des couts complets",
-    "registre des risques",
-]
-
-
-def _skill_label_for_cv(skill: str) -> str:
-    return (
-        safe_str(skill)
-        .replace("Incoterms (FCA, CPT, DAP)", "Incoterms FCA/CPT/DAP")
-        .replace("Incoterms FCA, CPT, DAP", "Incoterms FCA/CPT/DAP")
-    )
-
-
-def curate_technical_skills(skills, max_skills=6):
-    selected = []
-    seen = set()
-    for raw_skill in skills or []:
-        skill = _skill_label_for_cv(raw_skill)
-        key = normalize_text(skill)
-        if not skill or not key:
-            continue
-        if key in SKILL_SECTION_EXCLUDED_TERMS:
-            continue
-        if any(pattern in key for pattern in SKILL_SECTION_NOISY_PATTERNS):
-            continue
-        if key in seen:
-            continue
-        seen.add(key)
-        selected.append(skill)
-        if len(selected) >= max_skills:
-            break
-    return selected
-
-
-# ============================================================
 # FORMAT ROWS
 # ============================================================
 
-def format_experience(row):
+def _select_relevant_bullets(row, parsed_job=None, max_bullets=4):
+    candidates = extract_truth_bullets(row, max_bullets=10)
+    if not parsed_job or len(candidates) <= max_bullets:
+        return candidates[:max_bullets]
+    job_terms = {
+        term
+        for term in parsed_job.get("keywords", [])
+        if len(term) >= 3
+    }
+    normalized_job = parsed_job.get("normalized_text", "")
+
+    def score(item):
+        index, bullet = item
+        normalized = normalize_text(bullet)
+        overlap = sum(3 for term in job_terms if term in normalized)
+        domain_overlap = sum(
+            5
+            for term in (
+                "commande", "facturation", "sap", "erp", "excel", "reporting", "stock",
+                "transport", "logistique", "import", "export", "budget", "finance", "risque",
+                "projet", "planning", "client", "marketing", "campagne", "data",
+            )
+            if term in normalized_job and term in normalized
+        )
+        return overlap + domain_overlap - (index * 0.01)
+
+    ranked = sorted(enumerate(candidates), key=score, reverse=True)[:max_bullets]
+    ranked.sort(key=lambda item: item[0])
+    return [bullet for _, bullet in ranked]
+
+
+def _as_bool(value) -> bool:
+    return normalize_text(safe_str(value)) in {"1", "true", "yes", "oui", "vrai"}
+
+
+def format_experience(row, parsed_job=None, max_bullets=4):
     company = get_value(row, ["company", "organisation", "organization", "org", "entreprise"], "")
     position = get_value(row, ["position_title", "position", "title", "job_title", "role"], "")
     location = get_value(row, ["location", "city", "city_state", "lieu"], "")
@@ -2053,44 +1073,66 @@ def format_experience(row):
         dates = clean_dash_join(format_year_or_date(start), format_year_or_date(end))
 
     facts_locked = get_value(row, ["evidence_strength"], "").casefold() == "user_validated"
+    is_freelance = _as_bool(get_value(row, ["is_freelance"], ""))
     return {
         "experience_id": get_value(row, ["experience_id"], ""),
         "company": company,
         "position": position,
+        "display_position": (
+            f"{position} | Freelance" if is_freelance and position else ("Freelance" if is_freelance else position)
+        ),
         "location": location,
         "dates": dates,
-        "bullets": extract_truth_bullets(row, max_bullets=5 if facts_locked else 4),
+        "bullets": _select_relevant_bullets(row, parsed_job=parsed_job, max_bullets=max_bullets),
         "validated_memory": get_value(row, ["validated_memory"], ""),
         "facts_locked": facts_locked,
         "rewrite_locked": False,
+        "is_freelance": is_freelance,
     }
 
 
-def format_leadership(row):
-    org = get_value(row, ["organisation", "organization", "company", "org", "activity", "project"], "")
-    role = get_value(row, ["role", "position_title", "position", "title"], "")
-    location = get_value(row, ["city", "location", "city_state", "lieu"], "")
-
-    raw_dates = get_value(row, ["year", "dates", "date", "date_range"], "")
-    dates = format_year_or_date(raw_dates) if raw_dates else ""
-
-    if not dates:
-        start = get_value(row, ["date_start", "start_year"], "")
-        end = get_value(row, ["date_end", "end_year"], "")
-        dates = clean_dash_join(format_year_or_date(start), format_year_or_date(end))
-
-    return {
-        "org": org,
-        "role": role,
-        "location": location,
-        "dates": dates,
-        "bullets": extract_truth_bullets(row, max_bullets=2),
-    }
+def _refresh_experience_display_positions(experiences):
+    for experience in experiences:
+        position = safe_str(experience.get("position"))
+        experience["display_position"] = (
+            f"{position} | Freelance"
+            if experience.get("is_freelance") and position
+            else ("Freelance" if experience.get("is_freelance") else position)
+        )
+    return experiences
 
 
 # ============================================================
 # OUTPUT
 # ============================================================
+
+def build_dynamic_technical_skills(
+    *,
+    parsed_job,
+    document_language,
+    target_domain,
+    experiences,
+    certifications,
+    experience_memory=None,
+    character_budget=260,
+):
+    requirements = extract_job_skill_requirements(
+        job_title=parsed_job.get("job_title", ""),
+        job_description=parsed_job.get("raw_text", ""),
+        document_language=document_language,
+        target_domain=target_domain,
+    )
+    evidence_index = build_candidate_evidence_index(
+        experiences=experiences,
+        certifications=certifications,
+        validated_memory=experience_memory,
+    )
+    result = derive_dynamic_skills(
+        requirements,
+        evidence_index,
+        character_budget=character_budget,
+    )
+    return list(result.labels), result.to_dict()
 
 def build_output_filename(parsed_job):
     company = parsed_job.get("company") or "Entreprise"
@@ -2132,36 +1174,37 @@ def build_output_filename(parsed_job):
     return filename
 
 
-def build_replacements(experiences, leadership, certifications, technical_skills):
+def build_replacements(experiences, certifications, technical_skills, cv_headline=""):
     exp1 = experiences[0] if len(experiences) > 0 else {}
     exp2 = experiences[1] if len(experiences) > 1 else {}
-
-    lead1 = leadership[0] if len(leadership) > 0 else {}
+    exp3 = experiences[2] if len(experiences) > 2 else {}
 
     replacements = {
+        "[[CV_HEADLINE]]": cv_headline,
         "[[CERTIFICATION_ENTRIES]]": "\n".join(certifications),
 
         "[[EXP_1_COMPAGNY]]": exp1.get("company", ""),
         "[[EXP_1_COMPANY]]": exp1.get("company", ""),
-        "[[EXP_1_POSITION_TITLE]]": exp1.get("position", ""),
+        "[[EXP_1_POSITION_TITLE]]": exp1.get("display_position") or exp1.get("position", ""),
         "[[EXP_1_LOCATION]]": exp1.get("location", ""),
         "[[EXP_1_DATES]]": exp1.get("dates", ""),
         "[[EXP_1_BULLETS]]": exp1.get("bullets", []),
 
         "[[EXP_2_COMPAGNY]]": exp2.get("company", ""),
         "[[EXP_2_COMPANY]]": exp2.get("company", ""),
-        "[[EXP_2_POSITION_TITLE]]": exp2.get("position", ""),
+        "[[EXP_2_POSITION_TITLE]]": exp2.get("display_position") or exp2.get("position", ""),
         "[[EXP_2_LOCATION]]": exp2.get("location", ""),
         "[[EXP_2_DATES]]": exp2.get("dates", ""),
         "[[EXP_2_BULLETS]]": exp2.get("bullets", []),
 
-        "[[LEAD_1_ORG]]": lead1.get("org", ""),
-        "[[LEAD_1_ROLE]]": lead1.get("role", ""),
-        "[[LEAD_1_LOCATION]]": lead1.get("location", ""),
-        "[[LEAD_1_DATES]]": lead1.get("dates", ""),
-        "[[LEAD_1_BULLETS]]": lead1.get("bullets", []),
+        "[[EXP_3_COMPAGNY]]": exp3.get("company", ""),
+        "[[EXP_3_COMPANY]]": exp3.get("company", ""),
+        "[[EXP_3_POSITION_TITLE]]": exp3.get("display_position") or exp3.get("position", ""),
+        "[[EXP_3_LOCATION]]": exp3.get("location", ""),
+        "[[EXP_3_DATES]]": exp3.get("dates", ""),
+        "[[EXP_3_BULLETS]]": exp3.get("bullets", []),
 
-        "[[TECHNICAL_SKILLS]]": ", ".join(curate_technical_skills(technical_skills)),
+        "[[TECHNICAL_SKILLS]]": ", ".join(technical_skills),
     }
 
     return replacements
@@ -2169,13 +1212,14 @@ def build_replacements(experiences, leadership, certifications, technical_skills
 
 def write_last_run_report(
     parsed_job,
+    cv_headline,
     output_path,
     selected_exp_rows,
     selected_experiences,
-    selected_lead_rows,
-    selected_leadership,
     selected_certifications,
     selected_skills,
+    skill_diagnostics=None,
+    layout_guard=None,
     ats_initial=None,
     ats_final=None,
     document_language="fr",
@@ -2185,13 +1229,15 @@ def write_last_run_report(
         "mode": "local",
         "company_detected": parsed_job.get("company"),
         "job_title_detected": parsed_job.get("job_title"),
+        "cv_headline": cv_headline,
         "document_language": document_language,
         "keywords_detected": parsed_job.get("keywords", [])[:50],
         "output_docx": str(output_path),
         "selected_experiences": [],
-        "selected_leadership": [],
         "selected_certifications": selected_certifications,
         "selected_technical_skills": selected_skills,
+        "dynamic_skill_diagnostics": skill_diagnostics or {},
+        "layout_guard": layout_guard or {},
         "ats_initial": ats_initial or {},
         "ats_final": ats_final or {},
         "ats_score": (ats_final or {}).get("score"),
@@ -2211,21 +1257,12 @@ def write_last_run_report(
                 "position_title": exp.get("position"),
                 "location": exp.get("location"),
                 "dates": exp.get("dates"),
+                "bullets": exp.get("bullets", []),
+                "is_freelance": bool(exp.get("is_freelance")),
                 "score": float(row.get("_score", 0)) if "_score" in row.index else None,
                 "reason_tags": split_multi_value(
                     get_value(row, ["job_family_tags", "industry_tags", "skills_verified"], "")
                 )[:20],
-            }
-        )
-
-    for row, lead in zip(selected_lead_rows, selected_leadership):
-        report["selected_leadership"].append(
-            {
-                "organisation": lead.get("org"),
-                "role": lead.get("role"),
-                "location": lead.get("location"),
-                "dates": lead.get("dates"),
-                "score": float(row.get("_score", 0)) if "_score" in row.index else None,
             }
         )
 
@@ -2239,17 +1276,16 @@ def write_last_run_report(
 def optimize_cv_with_ats_guard(
     *,
     selected_experiences,
-    selected_leadership,
     selected_certifications,
     selected_skills,
+    cv_headline,
     job_text,
     current_ats,
     document_language="fr",
     target_domain="",
 ):
-    candidate_experiences, candidate_leadership = improve_full_cv_with_gemini(
+    candidate_experiences = improve_full_cv_with_gemini(
         selected_experiences,
-        selected_leadership,
         job_text,
         ats_analysis=current_ats,
         document_language=document_language,
@@ -2257,21 +1293,21 @@ def optimize_cv_with_ats_guard(
     )
     candidate_text = build_resume_ats_text(
         experiences=candidate_experiences,
-        leadership=candidate_leadership,
         certifications=selected_certifications,
         technical_skills=selected_skills,
+        cv_headline=cv_headline,
     )
     candidate_ats = analyze_ats_match(candidate_text, job_text)
     if document_language == "en" or is_override_active("cv"):
-        return candidate_experiences, candidate_leadership, candidate_ats
+        return candidate_experiences, candidate_ats
     if candidate_ats.get("score", 0) >= current_ats.get("score", 0):
-        return candidate_experiences, candidate_leadership, candidate_ats
+        return candidate_experiences, candidate_ats
 
     print(
         "Passe Gemini ignorée : score ATS candidat "
         f"{candidate_ats.get('score')}% < score précédent {current_ats.get('score')}%."
     )
-    return selected_experiences, selected_leadership, current_ats
+    return selected_experiences, current_ats
 
 
 # ============================================================
@@ -2291,14 +1327,11 @@ def main():
     workbook = load_master_profile()
 
     experiences_df = workbook["experiences"]
-    leadership_df = workbook["leadership"]
     certifications_df = workbook["certifications"]
-    skills_df = workbook["skills"]
-    skills_by_target_df = workbook.get("skills_by_target")
-    claim_rules_df = workbook.get("claim_rules")
 
     print("Analyse de la job description...")
     parsed_job = parse_job(job_text)
+    cv_headline = build_cv_headline(parsed_job, document_language)
     job_reference_context = build_job_reference_context(job_text)
     selection_job_text = job_reference_context.get("enriched_text") or job_text
     selection_parsed_job = dict(parsed_job)
@@ -2311,60 +1344,45 @@ def main():
         )
 
     print("Sélection des expériences...")
-    selected_exp_rows = select_top_rows(experiences_df, selection_parsed_job, max_rows=2)
+    selected_exp_rows = select_top_rows(experiences_df, selection_parsed_job, max_rows=3)
     selected_exp_rows = sorted(selected_exp_rows, key=get_row_year, reverse=True)
-    selected_experiences = [format_experience(row) for row in selected_exp_rows]
-
-    print("Sélection du leadership...")
-    selected_lead_rows = select_top_rows(leadership_df, selection_parsed_job, max_rows=1)
-    selected_leadership = [format_leadership(row) for row in selected_lead_rows]
+    selected_experiences = [
+        format_experience(row, selection_parsed_job, max_bullets=(4, 4, 2)[index])
+        for index, row in enumerate(selected_exp_rows)
+    ]
 
     print("Sélection des certifications...")
-    selected_certifications = select_certifications(certifications_df, selection_parsed_job, max_certs=2)
+    selected_certifications = select_certifications(certifications_df, parsed_job, max_certs=2)
 
-    print("Sélection des compétences techniques...")
-    selected_skills = select_technical_skills(
-        skills_df,
-        selected_exp_rows,
-        selection_parsed_job,
-        max_skills=12,
-        skills_by_target_df=skills_by_target_df,
-        claim_rules_df=claim_rules_df,
+    print("Déduction des compétences techniques depuis les preuves...")
+    selected_skills, skill_diagnostics = build_dynamic_technical_skills(
+        parsed_job=parsed_job,
+        document_language=document_language,
+        target_domain=target_domain,
+        experiences=experiences_df,
+        certifications=certifications_df,
+        experience_memory=workbook.get("experience_memory"),
     )
     initial_ats_text = build_resume_ats_text(
         experiences=selected_experiences,
-        leadership=selected_leadership,
         certifications=selected_certifications,
         technical_skills=selected_skills,
+        cv_headline=cv_headline,
     )
     ats_evidence_text = "\n".join(
         [
             initial_ats_text,
             "\n".join(row_search_text(row) for row in selected_exp_rows),
-            "\n".join(row_search_text(row) for row in selected_lead_rows),
         ]
-    )
-    ats_initial = analyze_ats_match(initial_ats_text, job_text, evidence_text=ats_evidence_text)
-    selected_skills = boost_skills_with_ats_keywords(
-        selected_skills,
-        ats_initial,
-        selection_parsed_job["normalized_text"],
-    )
-    selected_skills = curate_technical_skills(selected_skills)
-    initial_ats_text = build_resume_ats_text(
-        experiences=selected_experiences,
-        leadership=selected_leadership,
-        certifications=selected_certifications,
-        technical_skills=selected_skills,
     )
     ats_initial = analyze_ats_match(initial_ats_text, job_text, evidence_text=ats_evidence_text)
 
     print("Optimisation ATS + Gemini du CV complet...")
-    selected_experiences, selected_leadership, ats_final = optimize_cv_with_ats_guard(
+    selected_experiences, ats_final = optimize_cv_with_ats_guard(
         selected_experiences=selected_experiences,
-        selected_leadership=selected_leadership,
         selected_certifications=selected_certifications,
         selected_skills=selected_skills,
+        cv_headline=cv_headline,
         job_text=job_text,
         current_ats=ats_initial,
         document_language=document_language,
@@ -2373,11 +1391,11 @@ def main():
 
     if ats_final.get("score", 0) < ATS_ACCEPTABLE_SCORE:
         print("Deuxième passe ATS + Gemini du CV complet...")
-        selected_experiences, selected_leadership, ats_final = optimize_cv_with_ats_guard(
+        selected_experiences, ats_final = optimize_cv_with_ats_guard(
             selected_experiences=selected_experiences,
-            selected_leadership=selected_leadership,
             selected_certifications=selected_certifications,
             selected_skills=selected_skills,
+            cv_headline=cv_headline,
             job_text=job_text,
             current_ats=ats_final,
             document_language=document_language,
@@ -2391,16 +1409,17 @@ def main():
         )
     else:
         selected_experiences = apply_known_french_corrections(selected_experiences)
-        selected_leadership = apply_known_french_corrections(selected_leadership)
+        selected_experiences = nominalize_french_experiences(selected_experiences)
         selected_certifications = apply_known_french_corrections(selected_certifications)
         selected_skills = apply_known_french_corrections(selected_skills)
+    selected_experiences = _refresh_experience_display_positions(selected_experiences)
 
     cv_language_check = check_french_text(
         build_resume_ats_text(
             experiences=selected_experiences,
-            leadership=selected_leadership,
             certifications=selected_certifications,
             technical_skills=selected_skills,
+            cv_headline=cv_headline,
         ),
         allowed_terms=[
             selected_certifications,
@@ -2408,10 +1427,6 @@ def main():
             [
                 experience.get("company", "")
                 for experience in selected_experiences
-            ],
-            [
-                leadership.get("org", "")
-                for leadership in selected_leadership
             ],
         ],
     )
@@ -2422,27 +1437,15 @@ def main():
         )
         raise RuntimeError(f"CV bloqué par le contrôle orthographique : {details}")
 
-    replacements = build_replacements(
-        selected_experiences,
-        selected_leadership,
-        selected_certifications,
-        selected_skills,
-    )
-    replacements.update(cv_static_replacements(document_language))
-
     print("\n--- Résumé génération ---")
     print(f"Entreprise détectée : {parsed_job.get('company')}")
     print(f"Poste détecté : {parsed_job.get('job_title')}")
+    print(f"Titre du CV : {cv_headline}")
 
     print("\nExpériences sélectionnées :")
     for exp in selected_experiences:
         print(f"- {exp.get('company')} | {exp.get('position')} | {exp.get('dates')}")
         print(f"  Bullets : {len(exp.get('bullets', []))}")
-
-    print("\nLeadership sélectionné :")
-    for lead in selected_leadership:
-        print(f"- {lead.get('org')} | {lead.get('role')} | {lead.get('dates')}")
-        print(f"  Bullets : {len(lead.get('bullets', []))}")
 
     print("\nCertifications sélectionnées :")
     for cert in selected_certifications:
@@ -2466,7 +1469,38 @@ def main():
     output_path = CV_OUTPUT_DIR / output_filename
 
     renderer = DocxTemplateRenderer(BASE_CV_TEMPLATE_PATH)
-    renderer.render(replacements, output_path)
+    static_replacements = cv_static_replacements(document_language)
+
+    def replacement_factory(experiences, certifications, skills):
+        replacements = build_replacements(
+            experiences,
+            certifications,
+            skills,
+            cv_headline=cv_headline,
+        )
+        replacements.update(static_replacements)
+        return replacements
+
+    layout_result = render_cv_one_page(
+        renderer=renderer,
+        output_path=output_path,
+        replacement_factory=replacement_factory,
+        experiences=selected_experiences,
+        certifications=selected_certifications,
+        technical_skills=selected_skills,
+    )
+    selected_experiences = list(layout_result.experiences)
+    selected_skills = list(layout_result.technical_skills)
+    ats_final = analyze_ats_match(
+        build_resume_ats_text(
+            experiences=selected_experiences,
+            certifications=selected_certifications,
+            technical_skills=selected_skills,
+            cv_headline=cv_headline,
+        ),
+        job_text,
+        evidence_text=ats_evidence_text,
+    )
 
     if not output_path.exists():
         raise RuntimeError(f"Le fichier n'a pas été généré : {output_path}")
@@ -2480,25 +1514,26 @@ def main():
                 selected_certifications,
                 selected_skills,
                 [experience.get("company", "") for experience in selected_experiences],
-                [leadership.get("org", "") for leadership in selected_leadership],
             ],
         )
 
     write_last_run_report(
         parsed_job=parsed_job,
+        cv_headline=cv_headline,
         output_path=output_path,
         selected_exp_rows=selected_exp_rows,
         selected_experiences=selected_experiences,
-        selected_lead_rows=selected_lead_rows,
-        selected_leadership=selected_leadership,
         selected_certifications=selected_certifications,
         selected_skills=selected_skills,
+        skill_diagnostics=skill_diagnostics,
+        layout_guard=layout_result.to_dict(),
         ats_initial=ats_initial,
         ats_final=ats_final,
         document_language=document_language,
     )
 
     print(f"CV généré : {output_path}")
+    print(f"Pagination : {layout_result.page_count} page ({layout_result.measurement_method})")
     print(f"Rapport généré : {OUTPUT_DIR / 'last_run_report.json'}")
 
 
