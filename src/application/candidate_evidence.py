@@ -101,6 +101,7 @@ def build_candidate_evidence_index(
     certifications=None,
     formations=None,
     validated_memory=None,
+    validated_skills=None,
 ) -> CandidateEvidenceIndex:
     """Construit l'index depuis les colonnes factuelles, jamais depuis la JD.
 
@@ -167,6 +168,36 @@ def build_candidate_evidence_index(
                     _clean(row.get("experience_id")),
                 )
             )
+
+    for row in _records(validated_skills):
+        if _clean(row.get("validation_status")) != "user_validated":
+            continue
+        if _clean(row.get("skill_status") or "active") == "archived":
+            continue
+        skill_name = _clean(row.get("skill_name"))
+        evidence_text = _clean(row.get("evidence_text"))
+        if not skill_name or not evidence_text:
+            continue
+        text = " — ".join(
+            part
+            for part in (
+                skill_name,
+                _clean(row.get("aliases")),
+                evidence_text,
+                _clean(row.get("level")),
+                _clean(row.get("notes")),
+            )
+            if part
+        )
+        items.append(
+            EvidenceItem(
+                text,
+                "validated_skills",
+                "verified",
+                4,
+                _clean(row.get("experience_id")),
+            )
+        )
 
     return CandidateEvidenceIndex(items)
 

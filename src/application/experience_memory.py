@@ -37,6 +37,13 @@ EVIDENCE_COLUMNS = {
         "kpis_verified",
         *(f"truth_bullet_{index}" for index in range(1, 11)),
     },
+    "validated_skills": {
+        "skill_name",
+        "aliases",
+        "evidence_text",
+        "level",
+        "notes",
+    },
 }
 
 
@@ -267,15 +274,29 @@ def profile_evidence_text(master_path=MASTER_PROFILE_PATH) -> str:
     if not master.exists():
         return ""
     workbook = load_workbook(master, read_only=True, data_only=True)
-    values = []
-    for sheet_name, allowed in EVIDENCE_COLUMNS.items():
-        if sheet_name not in workbook.sheetnames:
-            continue
-        sheet = workbook[sheet_name]
-        headers = [str(cell.value or "").strip() for cell in sheet[1]]
-        indexes = [index for index, header in enumerate(headers) if header in allowed]
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            values.extend(str(row[index]).strip() for index in indexes if row[index] not in (None, ""))
-    if MEMORY_SHEET in workbook.sheetnames:
-        values.extend(text for _, text in _memory_texts(workbook[MEMORY_SHEET]) if text)
-    return "\n".join(values)
+    try:
+        values = []
+        for sheet_name, allowed in EVIDENCE_COLUMNS.items():
+            if sheet_name not in workbook.sheetnames:
+                continue
+            sheet = workbook[sheet_name]
+            headers = [str(cell.value or "").strip() for cell in sheet[1]]
+            indexes = [index for index, header in enumerate(headers) if header in allowed]
+            status_index = headers.index("validation_status") if "validation_status" in headers else None
+            active_index = headers.index("skill_status") if "skill_status" in headers else None
+            for row in sheet.iter_rows(min_row=2, values_only=True):
+                if sheet_name == "validated_skills":
+                    status = str(row[status_index] or "") if status_index is not None else ""
+                    active = str(row[active_index] or "active") if active_index is not None else "active"
+                    if status != "user_validated" or active != "active":
+                        continue
+                values.extend(
+                    str(row[index]).strip()
+                    for index in indexes
+                    if index < len(row) and row[index] not in (None, "")
+                )
+        if MEMORY_SHEET in workbook.sheetnames:
+            values.extend(text for _, text in _memory_texts(workbook[MEMORY_SHEET]) if text)
+        return "\n".join(values)
+    finally:
+        workbook.close()

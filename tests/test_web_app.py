@@ -41,6 +41,9 @@ def test_home_page_contains_minimal_primary_flow(monkeypatch):
     assert "Générer" in response.text
     assert "Références locales" in response.text
     assert "Paramètres avancés" in response.text
+    assert "Suivi des candidatures" in response.text
+    assert "Compétences normalisées" in response.text
+    assert "Paramétrage client" in response.text
     assert 'href="/static/styles.css"' in response.text
     assert 'id="generation-progress"' in response.text
     assert 'id="generate-button"' in response.text
@@ -51,6 +54,65 @@ def test_home_page_contains_minimal_primary_flow(monkeypatch):
     assert "Tout autre métier sera détecté depuis l’offre" in response.text
     assert "Décrivez concrètement ce que vous faisiez au quotidien" in response.text
     assert "documents/preload.html" not in response.text
+
+
+def test_home_page_can_open_client_onboarding_tabs():
+    client = TestClient(web_app.app)
+
+    tracker = client.get("/?tab=tracker")
+    skills = client.get("/?tab=skills")
+    setup = client.get("/?tab=setup")
+
+    assert tracker.status_code == 200
+    assert 'href="/?tab=tracker" aria-current="page"' in tracker.text
+    assert "Importer un suivi Excel ou CSV" in tracker.text
+    assert 'href="/?tab=skills" aria-current="page"' in skills.text
+    assert "Déposer un fichier normalisé" in skills.text
+    assert 'href="/?tab=setup" aria-current="page"' in setup.text
+    assert "Références locales du client" in setup.text
+
+
+def test_tracker_preview_route_shows_confirmation(monkeypatch):
+    monkeypatch.setattr(
+        web_app.client_imports,
+        "prepare_tracker_import",
+        lambda *args, **kwargs: {
+            "kind": "tracker",
+            "filename": "suivi.xlsx",
+            "sheet_name": "applications",
+            "row_count": 1,
+            "ignored_columns": [],
+            "errors": [],
+            "preview_rows": [
+                {
+                    "company": "Acme",
+                    "job_title": "Analyste",
+                    "status": "Entretien",
+                    "priority": "Haute",
+                    "timestamp": "2026-11-11",
+                }
+            ],
+            "can_confirm": True,
+            "token": "preview_token_1234567890",
+        },
+    )
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/tracker/import/preview",
+        files={
+            "file": (
+                "suivi.xlsx",
+                b"xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Aperçu avant écriture" in response.text
+    assert "Confirmer l’import" in response.text
+    assert "Acme" in response.text
 
 
 def test_generate_route_opens_enrichment_popup_when_coverage_is_low(monkeypatch):

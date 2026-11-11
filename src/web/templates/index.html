@@ -19,10 +19,24 @@
         </div>
       </header>
 
+      <nav class="home-tabs" aria-label="Navigation principale">
+        <a href="/?tab=generate" {% if active_tab == 'generate' %}aria-current="page"{% endif %}>Génération</a>
+        <a href="/?tab=tracker" {% if active_tab == 'tracker' %}aria-current="page"{% endif %}>Suivi des candidatures</a>
+        <a href="/?tab=skills" {% if active_tab == 'skills' %}aria-current="page"{% endif %}>Compétences</a>
+        <a href="/?tab=setup" {% if active_tab == 'setup' %}aria-current="page"{% endif %}>Paramétrage client</a>
+      </nav>
+
       {% if error %}
       <section class="notice error" role="alert">
-        <strong>Génération impossible</strong>
+        <strong>Action impossible</strong>
         <span>{{ error }}</span>
+      </section>
+      {% endif %}
+
+      {% if success_message %}
+      <section class="notice success" role="status">
+        <strong>Mise à jour terminée</strong>
+        <span>{{ success_message }}</span>
       </section>
       {% endif %}
 
@@ -36,6 +50,7 @@
       </section>
       {% endif %}
 
+      <section id="tab-generate" class="tab-panel" {% if active_tab != 'generate' %}hidden{% endif %}>
       <form id="generation-form" class="generator" action="/generate" method="post">
         <fieldset>
           <legend>Documents à générer</legend>
@@ -119,9 +134,194 @@
           {% endif %}
         </div>
       </details>
+      </section>
+
+      <section id="tab-tracker" class="tab-panel" {% if active_tab != 'tracker' %}hidden{% endif %}>
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Données gérées par ResumeForge</span>
+            <h2>Suivi des candidatures</h2>
+            <p>Importe le fichier du client, vérifie l’aperçu, puis fusionne-le avec le suivi alimenté après chaque génération.</p>
+          </div>
+          <div class="panel-actions">
+            <a class="button small" href="/tracker/template">Télécharger le modèle</a>
+            <a class="button small" href="/tracker/export">Exporter le suivi</a>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-card"><span>Candidatures</span><strong>{{ tracker.total }}</strong></div>
+          <div class="summary-card"><span>Lignes conservées</span><strong>{{ tracker.raw_total }}</strong></div>
+          <div class="summary-card"><span>Dernière mise à jour</span><strong>{{ tracker.last_update or '—' }}</strong></div>
+        </div>
+
+        <form class="import-card" action="/tracker/import/preview" method="post" enctype="multipart/form-data">
+          <div>
+            <strong>Importer un suivi Excel ou CSV</strong>
+            <p>Colonnes minimales : entreprise et poste. Les intitulés français courants sont reconnus automatiquement.</p>
+          </div>
+          <label class="file-control">
+            <span class="file-label">Choisir le fichier</span>
+            <input type="file" name="file" accept=".xlsx,.csv" required>
+          </label>
+          <button class="button primary" type="submit">Vérifier l’import</button>
+        </form>
+
+        {% if tracker_preview %}
+        <section class="import-preview" aria-labelledby="tracker-preview-title">
+          <div class="panel-heading compact-heading">
+            <div>
+              <span class="eyebrow">Aperçu avant écriture</span>
+              <h3 id="tracker-preview-title">{{ tracker_preview.filename }} · {{ tracker_preview.row_count }} ligne(s)</h3>
+              <p>Feuille lue : {{ tracker_preview.sheet_name }}</p>
+            </div>
+          </div>
+          {% if tracker_preview.ignored_columns %}
+          <p class="import-warning">Colonnes ignorées : {{ tracker_preview.ignored_columns | join(', ') }}</p>
+          {% endif %}
+          {% if tracker_preview.errors %}
+          <ul class="import-errors">
+            {% for item in tracker_preview.errors %}<li>{{ item }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+          {% if tracker_preview.preview_rows %}
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Entreprise</th><th>Poste</th><th>Statut</th><th>Priorité</th><th>Date</th></tr></thead>
+              <tbody>
+                {% for row in tracker_preview.preview_rows %}
+                <tr><td>{{ row.company }}</td><td>{{ row.job_title }}</td><td>{{ row.status or '—' }}</td><td>{{ row.priority or '—' }}</td><td>{{ row.timestamp or '—' }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          {% if tracker_preview.can_confirm %}
+          <form class="confirm-import" action="/tracker/import/confirm" method="post">
+            <input type="hidden" name="import_token" value="{{ tracker_preview.token }}">
+            <label class="field compact-field">
+              Mode d’intégration
+              <select name="import_mode">
+                <option value="merge">Fusionner et mettre à jour les doublons</option>
+                <option value="replace">Remplacer entièrement le suivi géré</option>
+              </select>
+            </label>
+            <p class="credibility-note">Une sauvegarde locale est créée avant toute écriture.</p>
+            <button class="button primary" type="submit">Confirmer l’import</button>
+          </form>
+          {% endif %}
+        </section>
+        {% endif %}
+
+        {% if tracker_error %}
+        <section class="notice error"><strong>Suivi illisible</strong><span>{{ tracker_error }}</span></section>
+        {% endif %}
+
+        <div class="table-card">
+          <div class="panel-heading compact-heading">
+            <div><h3>Candidatures actuelles</h3><p>Les générations répétées pour la même offre sont regroupées dans cette vue.</p></div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Entreprise</th><th>Poste</th><th>Statut</th><th>Priorité</th><th>ATS</th><th>Mise à jour</th></tr></thead>
+              <tbody>
+                {% for row in tracker.rows %}
+                <tr>
+                  <td>{{ row.company }}</td>
+                  <td>{% if row.safe_job_url %}<a href="{{ row.safe_job_url }}" target="_blank" rel="noopener noreferrer">{{ row.job_title }}</a>{% else %}{{ row.job_title }}{% endif %}</td>
+                  <td>{{ row.display_status }}</td>
+                  <td>{{ row.priority or '—' }}</td>
+                  <td>{{ row.ats_match_percent ~ '%' if row.ats_match_percent else '—' }}</td>
+                  <td>{{ row.updated_at or row.timestamp or '—' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="empty-state">Aucune candidature. Importe un fichier ou génère un premier dossier.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-skills" class="tab-panel" {% if active_tab != 'skills' %}hidden{% endif %}>
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Preuves candidat</span>
+            <h2>Compétences normalisées</h2>
+            <p>Chaque compétence importée doit comporter une preuve factuelle. Elle devient alors exploitable par le moteur de CV.</p>
+          </div>
+          <a class="button small" href="/skills/template">Télécharger le modèle</a>
+        </div>
+
+        <div class="summary-grid two-columns">
+          <div class="summary-card"><span>Compétences validées</span><strong>{{ skills_status.total }}</strong></div>
+          <div class="summary-card"><span>Dernier import</span><strong>{{ skills_status.last_update or '—' }}</strong></div>
+        </div>
+
+        <form class="import-card" action="/skills/import/preview" method="post" enctype="multipart/form-data">
+          <div>
+            <strong>Déposer un fichier normalisé</strong>
+            <p>Le modèle contient les catégories et niveaux acceptés. Aucun ajout n’est effectué avant confirmation.</p>
+          </div>
+          <label class="file-control">
+            <span class="file-label">Choisir le fichier</span>
+            <input type="file" name="file" accept=".xlsx,.csv" required>
+          </label>
+          <button class="button primary" type="submit">Vérifier les compétences</button>
+        </form>
+
+        {% if skills_preview %}
+        <section class="import-preview" aria-labelledby="skills-preview-title">
+          <div class="panel-heading compact-heading">
+            <div>
+              <span class="eyebrow">Aperçu avant écriture</span>
+              <h3 id="skills-preview-title">{{ skills_preview.filename }} · {{ skills_preview.row_count }} compétence(s)</h3>
+              <p>Feuille lue : {{ skills_preview.sheet_name }}</p>
+            </div>
+          </div>
+          {% if skills_preview.ignored_columns %}
+          <p class="import-warning">Colonnes ignorées : {{ skills_preview.ignored_columns | join(', ') }}</p>
+          {% endif %}
+          {% if skills_preview.warnings %}
+          <ul class="import-warnings">{% for item in skills_preview.warnings %}<li>{{ item }}</li>{% endfor %}</ul>
+          {% endif %}
+          {% if skills_preview.errors %}
+          <ul class="import-errors">{% for item in skills_preview.errors %}<li>{{ item }}</li>{% endfor %}</ul>
+          {% endif %}
+          {% if skills_preview.preview_rows %}
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Compétence</th><th>Catégorie</th><th>Expérience</th><th>Niveau</th><th>Preuve</th></tr></thead>
+              <tbody>
+                {% for row in skills_preview.preview_rows %}
+                <tr><td>{{ row.skill_name }}</td><td>{{ row.category }}</td><td>{{ row.experience_id or '—' }}</td><td>{{ row.level or '—' }}</td><td>{{ row.evidence_text }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          {% if skills_preview.can_confirm %}
+          <form class="confirm-import" action="/skills/import/confirm" method="post">
+            <input type="hidden" name="import_token" value="{{ skills_preview.token }}">
+            <p class="credibility-note">En confirmant, tu certifies que les faits importés ont été vérifiés avec le client.</p>
+            <button class="button primary" type="submit">Valider et ajouter au profil</button>
+          </form>
+          {% endif %}
+        </section>
+        {% endif %}
+      </section>
+
+      <section id="tab-setup" class="tab-panel" {% if active_tab != 'setup' %}hidden{% endif %}>
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Installation locale mono-client</span>
+            <h2>Paramétrage client</h2>
+            <p>Ajoute les données privées et modèles de ce client. Les fichiers précédents restent en place si un remplacement est invalide.</p>
+          </div>
+        </div>
 
       <details>
-        <summary>Références locales</summary>
+        <summary>Références locales du client</summary>
         <div class="details-content">
           {% for key, reference in references.items() %}
           <form class="reference-row" action="/references/{{ key }}" method="post" enctype="multipart/form-data">
@@ -138,7 +338,7 @@
               </span>
             </div>
             <label class="file-control">
-              Choisir
+              <span class="file-label">Choisir</span>
               <input type="file" name="file" required>
             </label>
             <button class="button small" type="submit">Remplacer</button>
@@ -177,6 +377,7 @@
           </form>
         </div>
       </details>
+      </section>
     </main>
 
     {% if coverage %}
@@ -276,6 +477,15 @@
             document.getElementById("job_text").value;
         });
       }
+
+      document.querySelectorAll(".file-control input[type='file']").forEach((input) => {
+        input.addEventListener("change", () => {
+          const label = input.closest(".file-control")?.querySelector(".file-label");
+          if (label) {
+            label.textContent = input.files?.[0]?.name || "Choisir le fichier";
+          }
+        });
+      });
 
     </script>
   </body>

@@ -41,6 +41,7 @@ ResumeForge produit un CV personnalisé, une lettre de motivation contrôlée, u
 | Traduction métier | Traduit les mêmes faits vers Achats, Supply Chain, Finance, Data, Gestion ou Projet sans inventer d'expérience |
 | Mémoire d'expérience | Conserve les enrichissements explicitement validés pour améliorer les générations suivantes |
 | Tracker | Met à jour le suivi de candidature sans casser le pipeline si Sheets est indisponible |
+| Onboarding client | Importe un suivi Excel/CSV, des compétences prouvées et les références privées depuis l'interface |
 | Sécurité | Garde `.env`, profils, templates privés et outputs hors Git |
 
 ## Sorties
@@ -240,9 +241,20 @@ L'interface permet :
 - de mesurer la couverture du profil selon les concepts, actions, objets et résultats du métier ;
 - de collecter dans un popup les faits manquants avant génération ;
 - de remplacer les références privées locales ;
+- d'importer un suivi `.xlsx` ou `.csv` après aperçu, puis de l'exporter en Excel ;
+- d'afficher un tableau de candidatures automatiquement alimenté après les générations ;
+- de télécharger un modèle normalisé de compétences et d'intégrer uniquement les lignes accompagnées d'une preuve factuelle ;
+- de regrouper le profil maître, le CV de référence et les templates dans l'onglet `Paramétrage client` ;
 - de personnaliser séparément les instructions Gemini CV et LM ;
 - de télécharger le pack courant au format ZIP.
 - de bloquer les doubles clics et toute seconde génération simultanée.
+
+Le navigateur ne conserve pas un lien permanent vers le fichier Excel d'origine.
+Après confirmation, ResumeForge fusionne l'import dans son tracker local géré,
+crée une sauvegarde avant écriture et propose un export Excel actualisé. Les
+compétences confirmées sont écrites dans la feuille `validated_skills` du profil
+maître et participent à la génération uniquement comme preuves explicitement
+validées.
 
 Le moteur de traduction métier est documenté dans
 [`docs/CAREER_TRANSLATION_ENGINE.md`](docs/CAREER_TRANSLATION_ENGINE.md).

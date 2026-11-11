@@ -245,6 +245,7 @@ def load_master_profile():
     workbook = {
         "experiences": pd.DataFrame(attach_memory_to_experiences(MASTER_PROFILE_PATH)),
         "experience_memory": get_sheet_case_insensitive(excel, "experience_memory"),
+        "validated_skills": get_sheet_case_insensitive(excel, "validated_skills"),
         "certifications": get_sheet_case_insensitive(excel, "certifications"),
         "job_families": get_sheet_case_insensitive(excel, "job_families"),
         "settings": get_sheet_case_insensitive(excel, "settings"),
@@ -1114,6 +1115,7 @@ def build_dynamic_technical_skills(
     experiences,
     certifications,
     experience_memory=None,
+    validated_skills=None,
     character_budget=260,
 ):
     requirements = extract_job_skill_requirements(
@@ -1126,6 +1128,7 @@ def build_dynamic_technical_skills(
         experiences=experiences,
         certifications=certifications,
         validated_memory=experience_memory,
+        validated_skills=validated_skills,
     )
     result = derive_dynamic_skills(
         requirements,
@@ -1362,6 +1365,7 @@ def main():
         experiences=experiences_df,
         certifications=certifications_df,
         experience_memory=workbook.get("experience_memory"),
+        validated_skills=workbook.get("validated_skills"),
     )
     initial_ats_text = build_resume_ats_text(
         experiences=selected_experiences,

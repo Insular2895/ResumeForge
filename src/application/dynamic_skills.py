@@ -108,7 +108,12 @@ def infer_candidate_skill_level(requirement: dict, evidence: Iterable[EvidenceIt
     ):
         return "advanced"
 
-    if usage_items and re.search(r"\b(?:autonome|quotidien|regulier|pilotage|supervision|responsable)\b", text):
+    if usage_items and re.search(r"\b(?:avance|advanced)\b", text):
+        return "advanced"
+    if usage_items and re.search(
+        r"\b(?:autonome|proficient|quotidien|regulier|pilotage|supervision|responsable)\b",
+        text,
+    ):
         return "proficient"
     if len({item.experience_id or item.source for item in usage_items}) >= 2:
         return "proficient"

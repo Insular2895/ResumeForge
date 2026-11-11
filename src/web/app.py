@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from src.config import APPLICATION_PACKS_DIR, OUTPUT_DIR
 from src.application.career_translation import assess_profile_for_job, load_career_domains
 from src.application import experience_memory
-from src.web import document_preview, experience_intake, prompt_overrides, reference_manager
+from src.web import client_imports, document_preview, experience_intake, prompt_overrides, reference_manager
 from src.web.generation_service import GenerationBusyError, GenerationError, GenerationService
 
 
@@ -26,6 +26,7 @@ PORT = 8765
 CURRENT_RESULT_DIR = OUTPUT_DIR / "web_current"
 PREVIEW_DIR = OUTPUT_DIR / "web_previews"
 FINAL_EXPORT_DIR = OUTPUT_DIR / "web_final_exports"
+HOME_TABS = {"generate", "tracker", "skills", "setup"}
 
 app = FastAPI(title="ResumeForge Local", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -38,6 +39,13 @@ SERVICE = GenerationService(
 
 
 def _context(request: Request, **extra) -> dict:
+    try:
+        tracker = client_imports.tracker_dashboard()
+        tracker_error = ""
+    except (OSError, ValueError) as exc:
+        tracker = {"rows": [], "total": 0, "raw_total": 0, "statuses": {}, "last_update": ""}
+        tracker_error = str(exc)
+    skills_status = client_imports.validated_skills_status()
     return {
         "request": request,
         "references": reference_manager.get_reference_statuses(),
@@ -45,13 +53,161 @@ def _context(request: Request, **extra) -> dict:
         "lm_prompt": prompt_overrides.load_override("lm") or "",
         "career_domains": load_career_domains(),
         "experience_options": experience_memory.experience_options(),
+        "active_tab": "generate",
+        "tracker": tracker,
+        "tracker_error": tracker_error,
+        "skills_status": skills_status,
         **extra,
     }
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse(request, "index.html", _context(request))
+def home(request: Request, tab: str = "generate"):
+    active_tab = tab if tab in HOME_TABS else "generate"
+    return templates.TemplateResponse(request, "index.html", _context(request, active_tab=active_tab))
+
+
+async def _save_upload_temporarily(file: UploadFile) -> Path:
+    data = await file.read(client_imports.MAX_UPLOAD_BYTES + 1)
+    if len(data) > client_imports.MAX_UPLOAD_BYTES:
+        raise ValueError("Le fichier dépasse la limite de 10 Mo.")
+    suffix = Path(file.filename or "").suffix.casefold()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+        temporary.write(data)
+    return temporary_path
+
+
+@app.get("/tracker/template")
+def download_tracker_template():
+    path = client_imports.create_tracker_template()
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/tracker/export")
+def export_tracker():
+    path = client_imports.export_tracker_xlsx()
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.post("/tracker/import/preview", response_class=HTMLResponse)
+async def preview_tracker_import(request: Request, file: UploadFile = File(...)):
+    temporary_path: Path | None = None
+    try:
+        temporary_path = await _save_upload_temporarily(file)
+        preview = client_imports.prepare_tracker_import(
+            temporary_path,
+            source_filename=file.filename or "suivi.xlsx",
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="tracker", tracker_preview=preview),
+            status_code=200 if preview["can_confirm"] else 400,
+        )
+    except (OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="tracker", error=str(exc)),
+            status_code=400,
+        )
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+@app.post("/tracker/import/confirm", response_class=HTMLResponse)
+def confirm_tracker_import(
+    request: Request,
+    import_token: str = Form(...),
+    import_mode: str = Form("merge"),
+):
+    try:
+        result = client_imports.confirm_tracker_import(import_token, mode=import_mode)
+        message = (
+            f"Suivi importé : {result['inserted']} ajout(s), "
+            f"{result['updated']} mise(s) à jour."
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="tracker", success_message=message),
+        )
+    except (OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="tracker", error=str(exc)),
+            status_code=400,
+        )
+
+
+@app.get("/skills/template")
+def download_skills_template():
+    path = client_imports.create_skills_template()
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.post("/skills/import/preview", response_class=HTMLResponse)
+async def preview_skills_import(request: Request, file: UploadFile = File(...)):
+    temporary_path: Path | None = None
+    try:
+        temporary_path = await _save_upload_temporarily(file)
+        preview = client_imports.prepare_skills_import(
+            temporary_path,
+            source_filename=file.filename or "competences.xlsx",
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="skills", skills_preview=preview),
+            status_code=200 if preview["can_confirm"] else 400,
+        )
+    except (OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="skills", error=str(exc)),
+            status_code=400,
+        )
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+@app.post("/skills/import/confirm", response_class=HTMLResponse)
+def confirm_skills_import(request: Request, import_token: str = Form(...)):
+    try:
+        result = client_imports.confirm_skills_import(import_token)
+        message = (
+            f"Compétences importées : {result['inserted']} ajout(s), "
+            f"{result['skipped']} doublon(s) ignoré(s)."
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="skills", success_message=message),
+        )
+    except (OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="skills", error=str(exc)),
+            status_code=400,
+        )
 
 
 @app.post("/generate", response_class=HTMLResponse)
@@ -298,10 +454,15 @@ def confirm_experience(
 
 @app.post("/references/{key}")
 async def replace_reference(request: Request, key: str, file: UploadFile = File(...)):
-    suffix = Path(file.filename or "").suffix
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
-        temporary_path = Path(temporary.name)
-        temporary.write(await file.read())
+    try:
+        temporary_path = await _save_upload_temporarily(file)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _context(request, active_tab="setup", error=str(exc)),
+            status_code=400,
+        )
     try:
         try:
             reference_manager.replace_reference(key, temporary_path)
@@ -309,24 +470,24 @@ async def replace_reference(request: Request, key: str, file: UploadFile = File(
             return templates.TemplateResponse(
                 request,
                 "index.html",
-                _context(request, error=str(exc)),
+                _context(request, active_tab="setup", error=str(exc)),
                 status_code=400,
             )
     finally:
         temporary_path.unlink(missing_ok=True)
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/?tab=setup", status_code=303)
 
 
 @app.post("/prompts/{kind}")
 def save_prompt(kind: str, value: str = Form(...)):
     prompt_overrides.save_override(kind, value)
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/?tab=setup", status_code=303)
 
 
 @app.post("/prompts/{kind}/reset")
 def reset_prompt(kind: str):
     prompt_overrides.reset_override(kind)
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/?tab=setup", status_code=303)
 
 
 @app.get("/download/current")

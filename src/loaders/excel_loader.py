@@ -27,6 +27,7 @@ class ExcelProfileLoader:
         "skills_legacy",
         "skills_by_target",
         "skills_by_target_legacy",
+        "validated_skills",
     }
 
     def __init__(self, workbook_path):
