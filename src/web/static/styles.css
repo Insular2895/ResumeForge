@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Calibri, Aptos, Arial, sans-serif;
   color: #172033;
   background: #f5f7fa;
 }
@@ -18,7 +18,7 @@ body {
 }
 
 main {
-  width: min(860px, calc(100% - 32px));
+  width: min(1040px, calc(100% - 32px));
   margin: 48px auto;
 }
 
@@ -52,6 +52,212 @@ span {
   border-radius: 7px;
   background: #fff;
   font-size: 13px;
+}
+
+.home-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 24px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 1px solid #d9dee8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.home-tabs a {
+  flex: 1 0 max-content;
+  padding: 10px 13px;
+  border-radius: 7px;
+  color: #657086;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.home-tabs a[aria-current="page"] {
+  background: #172033;
+  color: #fff;
+}
+
+.tab-panel {
+  margin-top: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 22px;
+  border: 1px solid #d9dee8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.panel-heading h2,
+.panel-heading h3 {
+  margin: 5px 0 7px;
+}
+
+.panel-heading p,
+.import-card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.summary-grid.two-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary-card {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  border: 1px solid #d9dee8;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.summary-card span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  overflow-wrap: anywhere;
+  font-size: 19px;
+}
+
+.import-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid #d9dee8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.import-card strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.import-preview,
+.table-card {
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid #d9dee8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.import-preview .panel-heading,
+.table-card .panel-heading {
+  padding: 0 0 14px;
+  border: 0;
+  border-radius: 0;
+}
+
+.compact-heading h3 {
+  margin-top: 4px;
+}
+
+.import-warning,
+.import-warnings,
+.import-errors {
+  margin: 10px 0;
+  padding: 11px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.import-warning,
+.import-warnings {
+  border: 1px solid #e4d3a3;
+  background: #fffdf5;
+  color: #6d571e;
+}
+
+.import-errors {
+  border: 1px solid #e6b5b5;
+  background: #fff8f8;
+  color: #8a3030;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e5e8ee;
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 13px;
+}
+
+th,
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #eef0f4;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #f7f9fc;
+  color: #4f5d75;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+td a {
+  color: #172033;
+  font-weight: 700;
+}
+
+.empty-state {
+  padding: 24px;
+  color: #657086;
+  text-align: center;
+}
+
+.confirm-import {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #eef0f4;
+}
+
+.confirm-import .primary {
+  margin-top: 14px;
 }
 
 .generator,
@@ -254,6 +460,15 @@ select {
   display: none;
 }
 
+.file-control .file-label {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .text-button {
   padding: 0;
   border: 0;
@@ -391,7 +606,7 @@ summary {
   min-height: calc(297mm - 28mm);
   outline: none;
   color: #111;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Calibri, Aptos, Arial, sans-serif;
   font-size: 11pt;
   line-height: 1.18;
 }
@@ -746,9 +961,33 @@ dialog::backdrop {
 
   header,
   .notice,
-  .reference-row {
+  .reference-row,
+  .panel-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .home-tabs a {
+    flex: 0 0 auto;
+  }
+
+  .panel-actions {
+    justify-content: flex-start;
+  }
+
+  .summary-grid,
+  .summary-grid.two-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .import-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .import-card .button,
+  .import-card .file-control {
+    text-align: center;
   }
 
   .readiness {

@@ -28,6 +28,10 @@ TRACKER_FIELDS = [
     "selected_technical_skills",
     "validation_status",
     "tracker_update_status",
+    "status",
+    "priority",
+    "notes",
+    "updated_at",
 ]
 
 LEGACY_TRACKER_FIELDS = TRACKER_FIELDS[1:]
@@ -92,6 +96,18 @@ def _migrate_tracker_rows(rows: list[list[str]]) -> list[list[str]] | None:
             else:
                 migrated.append(_pad_tracker_row(row))
         return migrated if changed else None
+
+    # Les versions précédentes du tracker utilisaient un sous-ensemble des
+    # colonnes actuelles. Un mapping par nom évite de transformer cet ancien
+    # en-tête en candidature lors de l'ajout de nouvelles colonnes de suivi.
+    if header and "timestamp" in header and set(header).issubset(set(TRACKER_FIELDS)):
+        migrated = [TRACKER_FIELDS]
+        for row in rows[1:]:
+            if row and _safe_str(row[0]).casefold() in {"ats_match_percent", "timestamp"}:
+                continue
+            source = dict(zip(header, row))
+            migrated.append([source.get(field, "") for field in TRACKER_FIELDS])
+        return migrated
 
     legacy_header = header == LEGACY_TRACKER_FIELDS or (
         bool(header) and _safe_str(header[0]).casefold() == "timestamp"
@@ -332,7 +348,7 @@ def _append_row_to_google_sheets(row: dict) -> str | None:
             worksheet = spreadsheet.add_worksheet(
                 title=sheet_tab,
                 rows=1000,
-                cols=len(TRACKER_FIELDS),
+                cols=len(GOOGLE_SHEET_FIELDS),
             )
 
         headers = _ensure_google_sheet_headers(worksheet)
@@ -358,9 +374,10 @@ def update_application_tracker(
     if sync_google_sheets is None:
         sync_google_sheets = tracker_path.resolve() == Path(APPLICATION_TRACKER_CSV_PATH).resolve()
 
+    timestamp = validation_report.get("timestamp") or datetime.now().isoformat(timespec="seconds")
     row = {
         "ats_match_percent": _safe_str(validation_report.get("ats_score", "")),
-        "timestamp": validation_report.get("timestamp") or datetime.now().isoformat(timespec="seconds"),
+        "timestamp": timestamp,
         "company": validation_report.get("company", ""),
         "job_title": validation_report.get("job_title", ""),
         "salary": validation_report.get("salary", ""),
@@ -375,6 +392,10 @@ def update_application_tracker(
         "selected_technical_skills": _safe_join(validation_report.get("selected_technical_skills", [])),
         "validation_status": validation_report.get("validation_status", ""),
         "tracker_update_status": "success",
+        "status": validation_report.get("status", ""),
+        "priority": validation_report.get("priority", ""),
+        "notes": validation_report.get("notes", ""),
+        "updated_at": validation_report.get("updated_at") or timestamp,
     }
 
     file_exists = tracker_path.exists()

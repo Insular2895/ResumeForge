@@ -5,6 +5,10 @@
 **Status:** Validated design
 **Backup branch:** `backup/pre-local-ui-20260608`
 
+**Amendment validated 2026-11-11:** the user approved a client-onboarding flow
+with application tracking, normalized skill imports, and a dedicated client
+setup tab. This amendment supersedes only the former “no history screen” rule.
+
 ---
 
 ## 1. Objective
@@ -39,7 +43,8 @@ The interface is a private local tool, not a public SaaS.
   local and ignored by Git.
 - Only one generation may run at a time.
 - The UI has no animations and very few visible controls.
-- No generation history is shown or maintained by the web interface.
+- The application tracker is shown as a compact operational dashboard. It is
+  not a second document library and does not duplicate generated packs.
 
 Gemini API use remains subject to the user's existing Google account quotas.
 
@@ -77,7 +82,9 @@ validation, ATS analysis, and application pack creation.
 
 ## 4. User Interface
 
-The interface is a single clean page with no animation.
+The interface is a single clean page with four server-rendered tabs and no
+animation: generation, application tracking, normalized skills, and client
+setup.
 
 ### Always Visible
 
@@ -109,7 +116,22 @@ After success, show:
 - warnings, including a non-blocking tracker failure;
 - one button: `Télécharger le pack`.
 
-There is no history screen and no list of previous generations.
+The tracking tab lists unique applications from the managed local tracker.
+Repeated generations remain in the raw tracker but are collapsed in the UI.
+Generated document packs are not duplicated in the dashboard.
+
+### Client Import Rules
+
+- Tracker imports accept `.xlsx` and `.csv`.
+- Company and job title are mandatory; common French column names are mapped
+  to the canonical tracker schema.
+- An import is previewed before confirmation.
+- Merge is the default; full replacement remains explicit.
+- A backup is created before tracker or master-profile writes.
+- The current managed tracker can be exported to a portable Excel workbook.
+- Normalized skills require a name and factual evidence.
+- Skills are written to `validated_skills` with `user_validated` provenance and
+  become candidate evidence only after explicit import confirmation.
 
 ---
 

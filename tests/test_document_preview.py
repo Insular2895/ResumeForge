@@ -1,8 +1,12 @@
 import json
 import zipfile
 import base64
+from copy import deepcopy
 
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from src.web.document_preview import (
     create_preview_session,
@@ -21,6 +25,24 @@ def _docx(path, paragraphs):
     for paragraph in paragraphs:
         document.add_paragraph(paragraph)
     document.save(path)
+
+
+def _add_hyperlink(paragraph, text, url):
+    relationship_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), relationship_id)
+    run = OxmlElement("w:r")
+    run_properties = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "1155CC")
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    run_properties.extend([color, underline])
+    text_node = OxmlElement("w:t")
+    text_node.text = text
+    run.extend([run_properties, text_node])
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
 
 
 def test_create_preview_session_extracts_generated_cv_and_lm(tmp_path):
@@ -97,7 +119,7 @@ def test_docx_to_html_preserves_cv_photo_sections_and_word_bullets(tmp_path):
     document.add_paragraph("Bachelor III - Chef de Projet - Graduation Oct.2025")
     document.add_paragraph("Expériences", style="Heading 1")
     document.add_paragraph("Coordination des flux import/export avec 15 partenaires.", style="List Bullet")
-    document.add_paragraph("Compétences et intérêts")
+    document.add_paragraph("Compétences & langues")
     docx_path = tmp_path / "CV - Test.docx"
     document.save(docx_path)
 
@@ -108,7 +130,7 @@ def test_docx_to_html_preserves_cv_photo_sections_and_word_bullets(tmp_path):
     assert '<h2>École Supérieure de Publicité' not in html
     assert '<p><strong>École Supérieure de Publicité ( ESP ) – Paris 16</strong></p>' in html
     assert '<ul><li>Coordination des flux import/export avec 15 partenaires.</li></ul>' in html
-    assert '<h2>Compétences et intérêts</h2>' in html
+    assert '<h2>Compétences &amp; langues</h2>' in html
 
 
 def test_docx_to_html_removes_duplicate_email_only_line_after_contact_header(tmp_path):
@@ -241,6 +263,55 @@ def test_export_final_zip_writes_edited_text_back_into_docx_when_dirty(tmp_path)
     exported_text = "\n".join(paragraph.text for paragraph in exported.paragraphs)
     assert "Nouvelle ligne exportée" in exported_text
     assert "Ancienne ligne" not in exported_text
+
+
+def test_edited_export_preserves_untouched_hyperlinks_styles_and_removes_inline_section(tmp_path):
+    preview_dir = tmp_path / "previews"
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    document = Document()
+    header = document.add_paragraph()
+    header.add_run("Lucas PERTUSA").bold = True
+    header.add_run(" Clamart 92 • ")
+    _add_hyperlink(header, "lucas@example.com", "mailto:lucas@example.com")
+    header.add_run(" • +33 01 02 03 04 05")
+    document.add_paragraph("lucas@example.com")
+    heading = document.add_paragraph("Expériences")
+    heading._p.get_or_add_pPr().append(deepcopy(document.sections[0]._sectPr))
+    certification = document.add_paragraph()
+    certification.add_run("Ancienne certification").bold = True
+    document.save(pack / "CV - Test.docx")
+    _docx(pack / "LM - Test.docx", ["Madame, Monsieur"])
+    session = create_preview_session(pack, preview_dir)
+
+    zip_path = export_final_zip(
+        session["preview_id"],
+        preview_dir,
+        tmp_path / "exports",
+        cv_edited=(
+            "<p>Lucas PERTUSA Clamart 92 • lucas@example.com • +33 01 02 03 04 05</p>"
+            "<h2>Expériences</h2>"
+            "<p>Nouvelle certification</p>"
+        ),
+        cv_is_dirty=True,
+    )
+
+    extracted_docx = tmp_path / "CV_Lucas_Pertusa.docx"
+    with zipfile.ZipFile(zip_path) as archive:
+        extracted_docx.write_bytes(archive.read("CV_Lucas_Pertusa.docx"))
+
+    exported = Document(extracted_docx)
+    document_xml = exported._element.xml
+    assert document_xml.count("lucas@example.com") == 1
+    assert len(exported.paragraphs[0]._p.findall(qn("w:hyperlink"))) == 1
+    assert exported.paragraphs[0].runs[0].bold is True
+    assert exported.paragraphs[0].runs[1].bold is not True
+    assert [paragraph.text for paragraph in exported.paragraphs] == [
+        "Lucas PERTUSA Clamart 92 • lucas@example.com • +33 01 02 03 04 05",
+        "Expériences",
+        "Nouvelle certification",
+    ]
+    assert len(exported._element.findall(".//" + qn("w:sectPr"))) == 1
 
 
 def test_export_final_zip_removes_trailing_empty_paragraphs_that_create_blank_pages(tmp_path):

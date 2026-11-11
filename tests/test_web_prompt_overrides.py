@@ -84,11 +84,11 @@ def test_cv_enhancer_applies_custom_override_before_gemini(monkeypatch):
 
     def fake_ask(prompt):
         captured["prompt"] = prompt
-        return '{"experiences": [], "leadership": []}'
+        return '{"experiences": []}'
 
     monkeypatch.setattr(cv_enhancer, "ask_gemini", fake_ask)
 
-    cv_enhancer.improve_full_cv_with_gemini([], [], "Offre")
+    cv_enhancer.improve_full_cv_with_gemini([], "Offre")
 
     assert captured["prompt"].endswith("CUSTOM")
 
@@ -101,12 +101,11 @@ def test_cv_enhancer_uses_supported_translation_terms_and_forbids_unsupported(mo
     monkeypatch.setattr(
         cv_enhancer,
         "ask_gemini",
-        lambda prompt: captured.setdefault("prompt", prompt) or '{"experiences": [], "leadership": []}',
+        lambda prompt: captured.setdefault("prompt", prompt) or '{"experiences": []}',
     )
 
     cv_enhancer.improve_full_cv_with_gemini(
         [{"company": "Minero", "position": "Acheteur", "bullets": ["Sourcing et négociation fournisseurs."]}],
-        [],
         "Acheteur international",
     )
 
@@ -135,9 +134,9 @@ def test_cv_enhancer_uses_the_domain_resolved_by_the_web_flow(monkeypatch):
             },
         ),
     )
-    monkeypatch.setattr(cv_enhancer, "ask_gemini", lambda prompt: '{"experiences": [], "leadership": []}')
+    monkeypatch.setattr(cv_enhancer, "ask_gemini", lambda prompt: '{"experiences": []}')
 
-    cv_enhancer.improve_full_cv_with_gemini([], [], "Offre générique", target_domain="acoustic_engineering")
+    cv_enhancer.improve_full_cv_with_gemini([], "Offre générique", target_domain="acoustic_engineering")
 
     assert captured["resolved"]["key"] == "acoustic_engineering"
 
@@ -151,8 +150,8 @@ def test_cv_enhancer_can_translate_user_validated_facts_without_changing_the_sou
         "ask_gemini",
         lambda prompt: (
             '{"experiences":[{"index":0,"position":"Acheteur / Vendeur",'
-            '"bullets":["Approvisionnement quotidien et gestion des stocks."]}],'
-            '"leadership":[]}'
+            '"bullets":["Approvisionnement quotidien et gestion des stocks."]}]'
+            '}'
         ),
     )
     source = [
@@ -165,7 +164,7 @@ def test_cv_enhancer_can_translate_user_validated_facts_without_changing_the_sou
         }
     ]
 
-    experiences, _ = cv_enhancer.improve_full_cv_with_gemini(source, [], "Acheteur fruits et légumes")
+    experiences = cv_enhancer.improve_full_cv_with_gemini(source, "Acheteur fruits et légumes")
 
     assert source[0]["bullets"] == ["Participation à l'approvisionnement auprès de fournisseurs à Rungis."]
     assert experiences[0]["bullets"] == ["Approvisionnement quotidien et gestion des stocks."]

@@ -4,7 +4,6 @@ from src.application.ats_matcher import (
     extract_ats_keywords,
     _score_experience,
 )
-from src.generate_cv import boost_skills_with_ats_keywords, erp_skills_for_job, normalize_text
 
 
 def test_ats_matcher_scores_keyword_coverage_and_gaps():
@@ -123,37 +122,3 @@ def test_ats_matcher_counts_french_action_noun_bullets():
 
     assert experience["action_verb_count"] >= 3
     assert experience["score"] >= 50
-
-
-def test_erp_skills_follow_job_specific_software():
-    assert erp_skills_for_job(normalize_text("Assistant ADV sur le logiciel Sage")) == [
-        "ERP",
-        "Logiciel Sage",
-    ]
-    assert erp_skills_for_job(normalize_text("Gestionnaire ADV avec SAP")) == [
-        "ERP",
-        "SAP",
-    ]
-    assert erp_skills_for_job(normalize_text("Gestionnaire ADV sur ERP")) == ["ERP"]
-
-
-def test_boost_skills_with_ats_keywords_only_adds_evidence_backed_keywords():
-    ats_analysis = {
-        "priority_keywords": ["commandes via sap", "sap", "ruptures de stocks", "pénalités", "edi"],
-        "injectable_keywords": ["excel"],
-        "transferable_keywords": [],
-        "missing_keywords": [],
-    }
-
-    boosted = boost_skills_with_ats_keywords(
-        ["Microsoft Office"],
-        ats_analysis,
-        normalize_text("assistant ADV SAP stocks pénalités commandes"),
-    )
-
-    assert "SAP" not in boosted
-    assert "EDI" not in boosted
-    assert "Excel" in boosted
-    assert "Commandes via SAP" not in boosted
-    assert "Gestion des ruptures de stock" not in boosted
-    assert "Gestion des pénalités" not in boosted

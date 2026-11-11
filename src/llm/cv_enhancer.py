@@ -1,8 +1,10 @@
 import json
 from copy import deepcopy
+import re
 
 from src.llm.gemini_client import ask_gemini, is_gemini_enabled
 from src.application.career_translation import build_translation_context, resolve_target_domain
+from src.application.french_nominalizer import nominalize_french_experiences
 from src.web.prompt_overrides import append_cv_override
 
 
@@ -23,7 +25,6 @@ def clean_json_response(text: str) -> str:
 
 def improve_full_cv_with_gemini(
     selected_experiences,
-    selected_leadership,
     job_text,
     ats_analysis=None,
     document_language="fr",
@@ -35,10 +36,9 @@ def improve_full_cv_with_gemini(
     """
 
     if not is_gemini_enabled():
-        return selected_experiences, selected_leadership
+        return nominalize_french_experiences(selected_experiences) if document_language == "fr" else selected_experiences
 
     experiences_copy = deepcopy(selected_experiences)
-    leadership_copy = deepcopy(selected_leadership)
 
     payload = {
         "experiences": [
@@ -53,21 +53,11 @@ def improve_full_cv_with_gemini(
             }
             for index, exp in enumerate(experiences_copy)
         ],
-        "leadership": [
-            {
-                "index": index,
-                "org": lead.get("org", ""),
-                "role": lead.get("role", ""),
-                "bullets": lead.get("bullets", []),
-            }
-            for index, lead in enumerate(leadership_copy)
-        ],
     }
     ats_analysis = ats_analysis or {}
     evidence_text = "\n".join(
         text
-        for group in [experiences_copy, leadership_copy]
-        for item in group
+        for item in experiences_copy
         for text in [*item.get("bullets", []), item.get("validated_memory", "")]
         if text
     )
@@ -118,7 +108,8 @@ Contraintes strictes :
 - préfère une formulation proportionnée à la responsabilité explicitement prouvée
 - évite les formulations fortes du type "expert", "maîtrise avancée", "spécialiste SAP" si ce n'est pas prouvé
 - style professionnel
-- rédige tous les intitulés de poste, rôles et bullets en {"anglais professionnel" if document_language == "en" else "français naturel"}
+- rédige tous les intitulés de poste et bullets en {"anglais professionnel" if document_language == "en" else "français naturel"}
+- pour le français, chaque bullet doit commencer par une formulation nominale naturelle (Création, Gestion, Pilotage, Coordination, Analyse, Mise en place, etc.), jamais par un participe passé
 - conserve les noms d'entreprise, organisations, lieux, dates, chiffres et outils inchangés
 - les faits avec `facts_locked: true` sont immuables sur le fond mais leur formulation métier peut être traduite
 - utilise `validated_memory` uniquement pour l'expérience à laquelle elle est rattachée
@@ -137,13 +128,6 @@ Format de réponse obligatoire :
     {{
       "index": 0,
       "position": "intitulé traduit si nécessaire",
-      "bullets": ["bullet 1", "bullet 2"]
-    }}
-  ],
-  "leadership": [
-    {{
-      "index": 0,
-      "role": "rôle traduit si nécessaire",
       "bullets": ["bullet 1", "bullet 2"]
     }}
   ]
@@ -175,39 +159,43 @@ CV à optimiser :
             if not isinstance(index, int) or index < 0 or index >= len(experiences_copy):
                 continue
             old_bullets = experiences_copy[index].get("bullets", [])
-            if item.get("position"):
+            if item.get("position") and not experiences_copy[index].get("rewrite_locked"):
                 experiences_copy[index]["position"] = str(item["position"]).strip()
 
-            if len(new_bullets) == len(old_bullets):
+            if len(new_bullets) == len(old_bullets) and not experiences_copy[index].get("rewrite_locked"):
+                cleaned_bullets = [
+                    str(b).strip().lstrip("-").lstrip("•").lstrip("*").strip()
+                    for b in new_bullets
+                    if str(b).strip()
+                ]
                 experiences_copy[index]["bullets"] = [
-                    str(b).strip().lstrip("-").lstrip("•").lstrip("*").strip()
-                    for b in new_bullets
-                    if str(b).strip()
+                    new if _preserves_locked_tokens(old, new) else old
+                    for old, new in zip(old_bullets, cleaned_bullets)
                 ]
 
-        for item in response_json.get("leadership", []):
-            index = item.get("index")
-            new_bullets = item.get("bullets", [])
-
-            if not isinstance(index, int) or index < 0 or index >= len(leadership_copy):
-                continue
-
-            old_bullets = leadership_copy[index].get("bullets", [])
-            if item.get("role"):
-                leadership_copy[index]["role"] = str(item["role"]).strip()
-
-            if len(new_bullets) == len(old_bullets):
-                leadership_copy[index]["bullets"] = [
-                    str(b).strip().lstrip("-").lstrip("•").lstrip("*").strip()
-                    for b in new_bullets
-                    if str(b).strip()
-                ]
-
-        return experiences_copy, leadership_copy
+        if document_language == "fr":
+            experiences_copy = nominalize_french_experiences(experiences_copy)
+        return experiences_copy
 
     except Exception as error:
         print(f"[Gemini fallback full CV] {error}")
-        return selected_experiences, selected_leadership
+        return nominalize_french_experiences(selected_experiences) if document_language == "fr" else selected_experiences
+
+
+def _preserves_locked_tokens(source: str, candidate: str) -> bool:
+    """Bloque une reformulation qui perd un chiffre ou un outil explicite."""
+
+    source_numbers = set(re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:%|k|K|M|€)?", str(source)))
+    candidate_numbers = set(re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:%|k|K|M|€)?", str(candidate)))
+    if not source_numbers.issubset(candidate_numbers):
+        return False
+    protected_pattern = re.compile(
+        r"\b(?:SAP|ERP|SQL|Python|Excel|Power\s*BI|Google\s*Ads|Meta\s*Ads|Incoterms|FCA|CPT|DAP|VBA)\b",
+        flags=re.IGNORECASE,
+    )
+    source_tools = {match.group(0).casefold() for match in protected_pattern.finditer(str(source))}
+    candidate_tools = {match.group(0).casefold() for match in protected_pattern.finditer(str(candidate))}
+    return source_tools.issubset(candidate_tools)
 
 
 def translate_cv_lists_to_english(certifications, technical_skills):

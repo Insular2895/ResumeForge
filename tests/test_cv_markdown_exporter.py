@@ -19,12 +19,14 @@ def test_cv_markdown_exporter_preserves_report_and_docx_content(tmp_path):
             {
                 "company_detected": "Ipsen",
                 "job_title_detected": "Coordinateur ADV Import-Export",
+                "cv_headline": "COORDINATEUR ADV IMPORT-EXPORT",
                 "selected_experiences": [
                     {
                         "company": "Blurry",
                         "position_title": "Operations",
                         "dates": "2024",
                         "reason_tags": ["SAP", "stock"],
+                        "bullets": ["Coordination de 12 partenaires."],
                     }
                 ],
                 "selected_certifications": ["SAP Supply Chain"],
@@ -42,4 +44,5 @@ def test_cv_markdown_exporter_preserves_report_and_docx_content(tmp_path):
     assert "Blurry" in markdown
     assert "SAP" in markdown
     assert "12 partenaires" in markdown
-
+    assert "COORDINATEUR ADV IMPORT-EXPORT" in markdown
+    assert "Leadership sélectionné" not in markdown

@@ -39,18 +39,10 @@ def cv_static_replacements(language: str) -> dict[str, str]:
         return {}
     return {
         "Éducation": "Education",
-        "Expériences": "Experience",
-        "Leadership et activités": "Leadership & Activities",
-        "Compétences et intérêts": "Skills & Interests",
+        "FORMATIONS & CERTIFICATIONS": "TRAINING & CERTIFICATIONS",
+        "Expériences": "Professional Experience",
+        "Compétences & langues": "Skills & Languages",
         "Compétences techniques :": "Technical skills:",
-        "Intérêts : Parfumerie, Nouvelles Technologies, Sport, solo-trips (Amérique Latine, Asie, Europe)": (
-            "Interests: Perfumery, New Technologies, Sports, solo travel "
-            "(Latin America, Asia, Europe)"
-        ),
-        "Intérêts : Parfumerie, Nouvelles Technologies, Sport , solo-trips (Amérique Latine, Asie, Europe)": (
-            "Interests: Perfumery, New Technologies, Sports, solo travel "
-            "(Latin America, Asia, Europe)"
-        ),
         "Langues : Français, Anglais (niveau C1 : autonome)": (
             "Languages: French (native), English (C1: independent)"
         ),
